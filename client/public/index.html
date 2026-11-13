@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Project Sync — Visiting Angels</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --primary: #1a56db;
+      --primary-light: #e1effe;
+      --primary-dark: #1e429f;
+      --success: #057a55;
+      --success-bg: #def7ec;
+      --danger: #e02424;
+      --danger-bg: #fde8e8;
+      --warning: #c27803;
+      --warning-bg: #fdf6b2;
+      --gray-50: #f9fafb;
+      --gray-100: #f3f4f6;
+      --gray-200: #e5e7eb;
+      --gray-300: #d1d5db;
+      --gray-500: #6b7280;
+      --gray-700: #374151;
+      --gray-900: #111827;
+      --white: #ffffff;
+      --radius: 8px;
+      --shadow: 0 1px 3px rgba(0,0,0,.1), 0 1px 2px rgba(0,0,0,.06);
+      --shadow-lg: 0 10px 15px -3px rgba(0,0,0,.1);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--gray-50);
+      color: var(--gray-900);
+      min-height: 100vh;
+    }
+
+    /* ── Layout ── */
+    .navbar {
+      background: var(--primary-dark);
+      color: var(--white);
+      padding: 0 24px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: var(--shadow);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .navbar h1 { font-size: 18px; font-weight: 600; }
+    .navbar .user-info { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+    .navbar button {
+      background: rgba(255,255,255,.15);
+      color: var(--white);
+      border: 1px solid rgba(255,255,255,.25);
+      padding: 6px 14px;
+      border-radius: var(--radius);
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .navbar button:hover { background: rgba(255,255,255,.25); }
+
+    .container { max-width: 960px; margin: 0 auto; padding: 24px 16px; }
+
+    .tabs {
+      display: flex;
+      gap: 4px;
+      background: var(--gray-100);
+      padding: 4px;
+      border-radius: var(--radius);
+      margin-bottom: 24px;
+    }
+    .tab {
+      flex: 1;
+      padding: 10px 16px;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--gray-500);
+      transition: all .15s;
+    }
+    .tab.active {
+      background: var(--white);
+      color: var(--primary);
+      box-shadow: var(--shadow);
+    }
+
+    .card {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 24px;
+      margin-bottom: 16px;
+    }
+    .card h2 { font-size: 18px; margin-bottom: 16px; color: var(--gray-700); }
+    .card h3 { font-size: 15px; margin-bottom: 12px; color: var(--gray-700); }
+
+    /* ── Forms ── */
+    .form-group { margin-bottom: 16px; }
+    .form-group label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 4px; color: var(--gray-700); }
+    .form-group input, .form-group textarea, .form-group select {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--gray-300);
+      border-radius: var(--radius);
+      font-size: 14px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .form-group input:focus, .form-group textarea:focus { border-color: var(--primary); }
+
+    .btn {
+      padding: 10px 20px;
+      border: none;
+      border-radius: var(--radius);
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all .15s;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-primary { background: var(--primary); color: var(--white); }
+    .btn-primary:hover { background: var(--primary-dark); }
+    .btn-success { background: var(--success); color: var(--white); }
+    .btn-success:hover { opacity: .9; }
+    .btn-danger { background: var(--danger); color: var(--white); }
+    .btn-danger:hover { opacity: .9; }
+    .btn-outline {
+      background: var(--white);
+      color: var(--gray-700);
+      border: 1px solid var(--gray-300);
+    }
+    .btn-outline:hover { background: var(--gray-50); }
+    .btn-sm { padding: 6px 12px; font-size: 13px; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* ── Clock display ── */
+    .clock-display {
+      text-align: center;
+      padding: 40px 20px;
+    }
+    .clock-display .time {
+      font-size: 48px;
+      font-weight: 700;
+      color: var(--gray-900);
+      font-variant-numeric: tabular-nums;
+    }
+    .clock-display .date {
+      font-size: 16px;
+      color: var(--gray-500);
+      margin-top: 4px;
+    }
+    .clock-display .status-badge {
+      display: inline-block;
+      padding: 6px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+      margin: 16px 0;
+    }
+    .status-clocked-in { background: var(--success-bg); color: var(--success); }
+    .status-clocked-out { background: var(--gray-100); color: var(--gray-500); }
+
+    .clock-btn {
+      padding: 16px 48px;
+      font-size: 18px;
+      font-weight: 600;
+      border-radius: 12px;
+      margin-top: 16px;
+    }
+
+    /* ── Status badges ── */
+    .badge {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+    .badge-pending { background: var(--warning-bg); color: var(--warning); }
+    .badge-approved { background: var(--success-bg); color: var(--success); }
+    .badge-denied { background: var(--danger-bg); color: var(--danger); }
+    .badge-cancelled { background: var(--gray-100); color: var(--gray-500); }
+    .badge-escalated { background: #e0e7ff; color: #4338ca; }
+
+    /* ── Table ── */
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; padding: 10px 12px; border-bottom: 2px solid var(--gray-200); color: var(--gray-500); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+    td { padding: 10px 12px; border-bottom: 1px solid var(--gray-100); }
+    tr:hover td { background: var(--gray-50); }
+
+    /* ── Alerts ── */
+    .alert {
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      margin-bottom: 16px;
+      font-size: 14px;
+    }
+    .alert-error { background: var(--danger-bg); color: var(--danger); }
+    .alert-success { background: var(--success-bg); color: var(--success); }
+
+    /* ── Login page ── */
+    .login-page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 100%);
+    }
+    .login-card {
+      background: var(--white);
+      border-radius: 12px;
+      box-shadow: var(--shadow-lg);
+      padding: 40px;
+      width: 100%;
+      max-width: 400px;
+    }
+    .login-card h1 { text-align: center; color: var(--primary-dark); margin-bottom: 8px; font-size: 24px; }
+    .login-card p { text-align: center; color: var(--gray-500); margin-bottom: 32px; font-size: 14px; }
+    .login-divider {
+      display: flex; align-items: center; margin: 24px 0; gap: 12px;
+      color: var(--gray-500); font-size: 13px;
+    }
+    .login-divider::before, .login-divider::after {
+      content: ''; flex: 1; height: 1px; background: var(--gray-200);
+    }
+    .google-btn-wrap {
+      display: flex; justify-content: center; margin-bottom: 8px;
+    }
+
+    /* ── Approval queue count ── */
+    .tab .count {
+      background: var(--danger);
+      color: var(--white);
+      border-radius: 10px;
+      padding: 1px 7px;
+      font-size: 11px;
+      margin-left: 4px;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 640px) {
+      .container { padding: 16px 12px; }
+      .clock-display .time { font-size: 36px; }
+      .tabs { flex-wrap: wrap; }
+      .tab { min-width: 45%; }
+      .card { padding: 16px; }
+    }
+
+    /* ── PTO Calendar ── */
+    .calendar-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .calendar-header h2 { margin-bottom: 0; }
+    .calendar-nav {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .calendar-nav button {
+      background: var(--white);
+      border: 1px solid var(--gray-300);
+      border-radius: var(--radius);
+      padding: 6px 12px;
+      cursor: pointer;
+      font-size: 16px;
+      color: var(--gray-700);
+      transition: all .15s;
+    }
+    .calendar-nav button:hover {
+      background: var(--gray-50);
+      border-color: var(--primary);
+      color: var(--primary);
+    }
+    .calendar-nav .month-label {
+      font-size: 18px;
+      font-weight: 600;
+      min-width: 180px;
+      text-align: center;
+      color: var(--gray-900);
+    }
+    .calendar-filters {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .calendar-filters select {
+      padding: 8px 12px;
+      border: 1px solid var(--gray-300);
+      border-radius: var(--radius);
+      font-size: 13px;
+      background: var(--white);
+      color: var(--gray-700);
+      cursor: pointer;
+      outline: none;
+    }
+    .calendar-filters select:focus { border-color: var(--primary); }
+
+    .calendar-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      border: 1px solid var(--gray-200);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .calendar-day-header {
+      padding: 10px 4px;
+      text-align: center;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      color: var(--gray-500);
+      background: var(--gray-50);
+      border-bottom: 1px solid var(--gray-200);
+    }
+    .calendar-day {
+      min-height: 90px;
+      padding: 6px;
+      border-right: 1px solid var(--gray-100);
+      border-bottom: 1px solid var(--gray-100);
+      background: var(--white);
+      position: relative;
+      transition: background .1s;
+    }
+    .calendar-day:nth-child(7n) { border-right: none; }
+    .calendar-day:hover { background: var(--gray-50); }
+    .calendar-day.other-month {
+      background: var(--gray-50);
+      opacity: .5;
+    }
+    .calendar-day.today {
+      background: var(--primary-light);
+    }
+    .calendar-day .day-number {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--gray-700);
+      margin-bottom: 4px;
+    }
+    .calendar-day.today .day-number {
+      background: var(--primary);
+      color: var(--white);
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+    .calendar-day.weekend { background: #fafbfc; }
+    .calendar-day.today.weekend { background: var(--primary-light); }
+
+    .pto-chip {
+      display: block;
+      padding: 2px 6px;
+      margin-bottom: 2px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      cursor: default;
+      line-height: 1.4;
+    }
+    .pto-chip.office-JT  { background: #dbeafe; color: #1e40af; }
+    .pto-chip.office-CF  { background: #fce7f3; color: #9d174d; }
+    .pto-chip.office-ML  { background: #d1fae5; color: #065f46; }
+    .pto-chip.office-CC  { background: #fef3c7; color: #92400e; }
+    .pto-chip.office-KOP { background: #e0e7ff; color: #3730a3; }
+    .pto-chip.office-HQ  { background: #f3e8ff; color: #6b21a8; }
+
+    .who-out-card {
+      border-left: 4px solid var(--primary);
+    }
+    .who-out-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .who-out-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 14px;
+      background: var(--gray-50);
+      border-radius: var(--radius);
+      font-size: 13px;
+    }
+    .who-out-item .office-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .office-dot-JT  { background: #3b82f6; }
+    .office-dot-CF  { background: #ec4899; }
+    .office-dot-ML  { background: #10b981; }
+    .office-dot-CC  { background: #f59e0b; }
+    .office-dot-KOP { background: #6366f1; }
+    .office-dot-HQ  { background: #8b5cf6; }
+
+    .legend {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--gray-100);
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 12px;
+      color: var(--gray-500);
+    }
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 3px;
+    }
+
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .stat-box {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 16px;
+      text-align: center;
+    }
+    .stat-box .stat-number {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--primary);
+    }
+    .stat-box .stat-label {
+      font-size: 12px;
+      color: var(--gray-500);
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      margin-top: 4px;
+    }
+
+    .hidden { display: none !important; }
+    .flex-row { display: flex; gap: 8px; align-items: center; }
+    .flex-between { display: flex; justify-content: space-between; align-items: center; }
+    .mt-2 { margin-top: 8px; }
+    .mt-4 { margin-top: 16px; }
+    .mb-4 { margin-bottom: 16px; }
+    .text-sm { font-size: 13px; }
+    .text-muted { color: var(--gray-500); }
+    .text-right { text-align: right; }
+    .gap-2 { gap: 8px; }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="/app.js"></script>
+</body>
+</html>

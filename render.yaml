@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: project-sync
+    runtime: node
+    plan: starter
+    buildCommand: ""
+    startCommand: node server/start.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GMAIL_USER
+        sync: false
+      - key: GMAIL_APP_PASSWORD
+        sync: false
+      - key: GEOFENCE_RADIUS_METERS
+        value: "200"
+      - key: BASE_URL
+        sync: false
+      - key: DATA_DIR
+        value: /data
+    disk:
+      name: project-sync-data
+      mountPath: /data
+      sizeGB: 1

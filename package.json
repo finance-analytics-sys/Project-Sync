@@ -1,0 +1,15 @@
+{
+  "name": "project-sync",
+  "version": "1.0.0",
+  "description": "Clock in/out and PTO platform for Visiting Angels",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/start.js",
+    "seed": "node server/seed.js",
+    "seed:force": "FORCE_SEED=true node server/seed.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {}
+}
