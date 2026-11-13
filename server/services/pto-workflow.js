@@ -125,7 +125,7 @@ function getApprovalPath(requester, startDate) {
 
 // ── Submit PTO ──
 
-function submitPTO(requesterId, startDate, endDate, reason, hours) {
+async function submitPTO(requesterId, startDate, endDate, reason, hours) {
   const requester = db.findOne('users', (u) => u.id === requesterId);
   if (!requester) return { error: 'User not found' };
 
@@ -186,11 +186,11 @@ function submitPTO(requesterId, startDate, endDate, reason, hours) {
     approvers = [];
   }
 
-  email.ptoSubmittedEmail(request, requester, approvers);
+  await email.ptoSubmittedEmail(request, requester, approvers);
 
   // CEO notification for executive self-PTO
   if (path.notifyCeo) {
-    email.ceoNotificationEmail(request, requester);
+    await email.ceoNotificationEmail(request, requester);
   }
 
   return { success: true, request, path };
@@ -198,7 +198,7 @@ function submitPTO(requesterId, startDate, endDate, reason, hours) {
 
 // ── Approve PTO ──
 
-function approvePTO(requestId, approverId) {
+async function approvePTO(requestId, approverId) {
   const request = db.findOne('pto_requests', (r) => r.id === requestId);
   if (!request) return { error: 'Request not found' };
   if (request.status !== 'pending') return { error: `Request is already ${request.status}` };
@@ -227,14 +227,14 @@ function approvePTO(requestId, approverId) {
       // Escalate to L1
       const executives = db.findAll('users', (u) => u.level === 1);
       const updatedRequest = db.findOne('pto_requests', (r) => r.id === requestId);
-      email.ptoApprovedEmail(updatedRequest, requester, approver, false);
-      email.ptoEscalatedEmail(updatedRequest, requester, executives);
+      await email.ptoApprovedEmail(updatedRequest, requester, approver, false);
+      await email.ptoEscalatedEmail(updatedRequest, requester, executives);
       return { success: true, status: 'escalated_to_executive', request: updatedRequest };
     } else {
       // L2 only — fully approved
       db.update('pto_requests', requestId, { status: 'approved' });
       const updatedRequest = db.findOne('pto_requests', (r) => r.id === requestId);
-      email.ptoApprovedEmail(updatedRequest, requester, approver, true);
+      await email.ptoApprovedEmail(updatedRequest, requester, approver, true);
       return { success: true, status: 'approved', request: updatedRequest };
     }
   }
@@ -260,7 +260,7 @@ function approvePTO(requestId, approverId) {
     });
 
     const updatedRequest = db.findOne('pto_requests', (r) => r.id === requestId);
-    email.ptoApprovedEmail(updatedRequest, requester, approver, true);
+    await email.ptoApprovedEmail(updatedRequest, requester, approver, true);
     return { success: true, status: 'approved', request: updatedRequest };
   }
 
@@ -269,7 +269,7 @@ function approvePTO(requestId, approverId) {
 
 // ── Deny PTO ──
 
-function denyPTO(requestId, denierId, denialReason) {
+async function denyPTO(requestId, denierId, denialReason) {
   const request = db.findOne('pto_requests', (r) => r.id === requestId);
   if (!request) return { error: 'Request not found' };
   if (request.status !== 'pending') return { error: `Request is already ${request.status}` };
@@ -303,13 +303,13 @@ function denyPTO(requestId, denierId, denialReason) {
   });
 
   const updatedRequest = db.findOne('pto_requests', (r) => r.id === requestId);
-  email.ptoDeniedEmail(updatedRequest, requester, denier);
+  await email.ptoDeniedEmail(updatedRequest, requester, denier);
   return { success: true, status: 'denied', request: updatedRequest };
 }
 
 // ── Cancel PTO ──
 
-function cancelPTO(requestId, userId) {
+async function cancelPTO(requestId, userId) {
   const request = db.findOne('pto_requests', (r) => r.id === requestId);
   if (!request) return { error: 'Request not found' };
   if (request.requester_id !== userId) return { error: 'You can only cancel your own requests' };
@@ -334,7 +334,7 @@ function cancelPTO(requestId, userId) {
   }
 
   if (notifyEmails.length > 0) {
-    email.ptoCancelledEmail(request, requester, notifyEmails);
+    await email.ptoCancelledEmail(request, requester, notifyEmails);
   }
 
   return { success: true, status: 'cancelled' };
@@ -342,7 +342,7 @@ function cancelPTO(requestId, userId) {
 
 // ── Edit PTO ──
 
-function editPTO(requestId, userId, updates) {
+async function editPTO(requestId, userId, updates) {
   const request = db.findOne('pto_requests', (r) => r.id === requestId);
   if (!request) return { error: 'Request not found' };
   if (request.requester_id !== userId) return { error: 'You can only edit your own requests' };
@@ -394,7 +394,7 @@ function editPTO(requestId, userId, updates) {
   }
 
   if (notifyEmails.length > 0) {
-    email.ptoEditedEmail(updatedRequest, requester, notifyEmails);
+    await email.ptoEditedEmail(updatedRequest, requester, notifyEmails);
   }
 
   return { success: true, request: updatedRequest };

@@ -4,44 +4,44 @@
 const db = require('../db');
 const workflow = require('../services/pto-workflow');
 
-function handleSubmit(body, authUser) {
+async function handleSubmit(body, authUser) {
   const { start_date, end_date, reason, hours } = body;
   if (!start_date || !end_date) {
     return { status: 400, body: { error: 'start_date and end_date are required' } };
   }
-  const result = workflow.submitPTO(authUser.id, start_date, end_date, reason, hours);
+  const result = await workflow.submitPTO(authUser.id, start_date, end_date, reason, hours);
   if (result.error) return { status: 400, body: { error: result.error } };
   return { status: 201, body: result };
 }
 
-function handleApprove(body, authUser) {
+async function handleApprove(body, authUser) {
   const { request_id } = body;
   if (!request_id) return { status: 400, body: { error: 'request_id is required' } };
-  const result = workflow.approvePTO(request_id, authUser.id);
+  const result = await workflow.approvePTO(request_id, authUser.id);
   if (result.error) return { status: 400, body: { error: result.error } };
   return { status: 200, body: result };
 }
 
-function handleDeny(body, authUser) {
+async function handleDeny(body, authUser) {
   const { request_id, reason } = body;
   if (!request_id) return { status: 400, body: { error: 'request_id is required' } };
-  const result = workflow.denyPTO(request_id, authUser.id, reason);
+  const result = await workflow.denyPTO(request_id, authUser.id, reason);
   if (result.error) return { status: 400, body: { error: result.error } };
   return { status: 200, body: result };
 }
 
-function handleCancel(body, authUser) {
+async function handleCancel(body, authUser) {
   const { request_id } = body;
   if (!request_id) return { status: 400, body: { error: 'request_id is required' } };
-  const result = workflow.cancelPTO(request_id, authUser.id);
+  const result = await workflow.cancelPTO(request_id, authUser.id);
   if (result.error) return { status: 400, body: { error: result.error } };
   return { status: 200, body: result };
 }
 
-function handleEdit(body, authUser) {
+async function handleEdit(body, authUser) {
   const { request_id, start_date, end_date, reason, hours } = body;
   if (!request_id) return { status: 400, body: { error: 'request_id is required' } };
-  const result = workflow.editPTO(request_id, authUser.id, { start_date, end_date, reason, hours });
+  const result = await workflow.editPTO(request_id, authUser.id, { start_date, end_date, reason, hours });
   if (result.error) return { status: 400, body: { error: result.error } };
   return { status: 200, body: result };
 }

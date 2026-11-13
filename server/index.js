@@ -183,31 +183,31 @@ async function handleRequest(req, res) {
         const user = requireAuth(req, res);
         if (!user) return;
         const body = await parseBody(req);
-        result = handleSubmit(body, user);
+        result = await handleSubmit(body, user);
       }
       else if (pathname === '/api/pto/approve' && req.method === 'POST') {
         const user = requireAuth(req, res);
         if (!user) return;
         const body = await parseBody(req);
-        result = handleApprove(body, user);
+        result = await handleApprove(body, user);
       }
       else if (pathname === '/api/pto/deny' && req.method === 'POST') {
         const user = requireAuth(req, res);
         if (!user) return;
         const body = await parseBody(req);
-        result = handleDeny(body, user);
+        result = await handleDeny(body, user);
       }
       else if (pathname === '/api/pto/cancel' && req.method === 'POST') {
         const user = requireAuth(req, res);
         if (!user) return;
         const body = await parseBody(req);
-        result = handleCancel(body, user);
+        result = await handleCancel(body, user);
       }
       else if (pathname === '/api/pto/edit' && req.method === 'POST') {
         const user = requireAuth(req, res);
         if (!user) return;
         const body = await parseBody(req);
-        result = handleEdit(body, user);
+        result = await handleEdit(body, user);
       }
       else if (pathname === '/api/pto/my-requests' && req.method === 'GET') {
         const user = requireAuth(req, res);

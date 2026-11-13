@@ -29,6 +29,7 @@ function smtpSend({ from, to, subject, html, text }) {
 
     const socket = tls.connect(465, 'smtp.gmail.com', { servername: 'smtp.gmail.com' }, () => {
       let step = 0;
+      let rcptIndex = 0;
       let buffer = '';
 
       socket.on('data', (data) => {
@@ -65,12 +66,12 @@ function smtpSend({ from, to, subject, html, text }) {
           }
           socket.write(`MAIL FROM:<${from}>\r\n`);
           step = 5;
-          step_rcpt = 0;
+          rcptIndex = 0;
         } else if (step === 5) {
           // MAIL FROM accepted, send RCPT TO for each recipient
-          if (step_rcpt < uniqueRecipients.length) {
-            socket.write(`RCPT TO:<${uniqueRecipients[step_rcpt]}>\r\n`);
-            step_rcpt++;
+          if (rcptIndex < uniqueRecipients.length) {
+            socket.write(`RCPT TO:<${uniqueRecipients[rcptIndex]}>\r\n`);
+            rcptIndex++;
           } else {
             socket.write('DATA\r\n');
             step = 6;
@@ -145,6 +146,13 @@ async function sendEmail({ to, subject, html, text }) {
 
 // ── PTO notification templates ──
 
+/** Convert YYYY-MM-DD → MM-DD-YYYY for email display */
+function fmtDate(iso) {
+  if (!iso || iso.length !== 10) return iso;
+  const [y, m, d] = iso.split('-');
+  return `${m}-${d}-${y}`;
+}
+
 function formatHoursDays(request) {
   if (request.pto_hours) {
     return `${request.pto_hours}h (${request.pto_days} day${request.pto_days !== 1 ? 's' : ''})`;
@@ -152,15 +160,15 @@ function formatHoursDays(request) {
   return null;
 }
 
-function ptoSubmittedEmail(request, requester, approvers) {
+async function ptoSubmittedEmail(request, requester, approvers) {
   const approverEmails = approvers.map((a) => a.email);
   const dateRange = request.start_date === request.end_date
-    ? request.start_date
-    : `${request.start_date} – ${request.end_date}`;
+    ? fmtDate(request.start_date)
+    : `${fmtDate(request.start_date)} – ${fmtDate(request.end_date)}`;
   const hoursInfo = formatHoursDays(request);
 
-  // Notify approvers
-  sendEmail({
+  // Notify approvers FIRST (most important)
+  await sendEmail({
     to: approverEmails,
     subject: `[PTO Request] ${requester.first_name} ${requester.last_name} — ${dateRange}${hoursInfo ? ` (${hoursInfo})` : ''}`,
     html: `
@@ -174,8 +182,8 @@ function ptoSubmittedEmail(request, requester, approvers) {
     `,
   });
 
-  // Confirm to requester
-  sendEmail({
+  // THEN confirm to requester (sequential — avoids SMTP race)
+  await sendEmail({
     to: requester.email,
     subject: `[PTO] Your request for ${dateRange} has been submitted`,
     html: `
@@ -187,13 +195,13 @@ function ptoSubmittedEmail(request, requester, approvers) {
   });
 }
 
-function ptoApprovedEmail(request, requester, approver, isFinal) {
+async function ptoApprovedEmail(request, requester, approver, isFinal) {
   const dateRange = request.start_date === request.end_date
-    ? request.start_date
-    : `${request.start_date} – ${request.end_date}`;
+    ? fmtDate(request.start_date)
+    : `${fmtDate(request.start_date)} – ${fmtDate(request.end_date)}`;
   const hoursInfo = formatHoursDays(request);
 
-  sendEmail({
+  await sendEmail({
     to: requester.email,
     subject: `[PTO] Your request for ${dateRange} has been ${isFinal ? 'APPROVED' : 'approved by manager (pending executive review)'}`,
     html: `
@@ -205,13 +213,13 @@ function ptoApprovedEmail(request, requester, approver, isFinal) {
   });
 }
 
-function ptoEscalatedEmail(request, requester, executives) {
+async function ptoEscalatedEmail(request, requester, executives) {
   const dateRange = request.start_date === request.end_date
-    ? request.start_date
-    : `${request.start_date} – ${request.end_date}`;
+    ? fmtDate(request.start_date)
+    : `${fmtDate(request.start_date)} – ${fmtDate(request.end_date)}`;
   const hoursInfo = formatHoursDays(request);
 
-  sendEmail({
+  await sendEmail({
     to: executives.map((e) => e.email),
     subject: `[PTO Escalation] ${requester.first_name} ${requester.last_name} — ${dateRange}${hoursInfo ? ` (${hoursInfo})` : ''}`,
     html: `
@@ -225,13 +233,13 @@ function ptoEscalatedEmail(request, requester, executives) {
   });
 }
 
-function ptoDeniedEmail(request, requester, denier) {
+async function ptoDeniedEmail(request, requester, denier) {
   const dateRange = request.start_date === request.end_date
-    ? request.start_date
-    : `${request.start_date} – ${request.end_date}`;
+    ? fmtDate(request.start_date)
+    : `${fmtDate(request.start_date)} – ${fmtDate(request.end_date)}`;
   const hoursInfo = formatHoursDays(request);
 
-  sendEmail({
+  await sendEmail({
     to: requester.email,
     subject: `[PTO] Your request for ${dateRange} has been DENIED`,
     html: `
@@ -242,12 +250,12 @@ function ptoDeniedEmail(request, requester, denier) {
   });
 }
 
-function ptoCancelledEmail(request, requester, notifyEmails) {
+async function ptoCancelledEmail(request, requester, notifyEmails) {
   const dateRange = request.start_date === request.end_date
-    ? request.start_date
-    : `${request.start_date} – ${request.end_date}`;
+    ? fmtDate(request.start_date)
+    : `${fmtDate(request.start_date)} – ${fmtDate(request.end_date)}`;
 
-  sendEmail({
+  await sendEmail({
     to: notifyEmails,
     subject: `[PTO] ${requester.first_name} ${requester.last_name} cancelled request for ${dateRange}`,
     html: `
@@ -257,13 +265,13 @@ function ptoCancelledEmail(request, requester, notifyEmails) {
   });
 }
 
-function ptoEditedEmail(request, requester, notifyEmails) {
+async function ptoEditedEmail(request, requester, notifyEmails) {
   const dateRange = request.start_date === request.end_date
-    ? request.start_date
-    : `${request.start_date} – ${request.end_date}`;
+    ? fmtDate(request.start_date)
+    : `${fmtDate(request.start_date)} – ${fmtDate(request.end_date)}`;
   const hoursInfo = formatHoursDays(request);
 
-  sendEmail({
+  await sendEmail({
     to: notifyEmails,
     subject: `[PTO] ${requester.first_name} ${requester.last_name} edited request — now ${dateRange}`,
     html: `
@@ -276,16 +284,16 @@ function ptoEditedEmail(request, requester, notifyEmails) {
   });
 }
 
-function ceoNotificationEmail(request, requester) {
+async function ceoNotificationEmail(request, requester) {
   const dateRange = request.start_date === request.end_date
-    ? request.start_date
-    : `${request.start_date} – ${request.end_date}`;
+    ? fmtDate(request.start_date)
+    : `${fmtDate(request.start_date)} – ${fmtDate(request.end_date)}`;
   const hoursInfo = formatHoursDays(request);
 
   const ceoUser = require('../db').findOne('users', (u) => u.role === 'ceo');
   if (!ceoUser) return;
 
-  sendEmail({
+  await sendEmail({
     to: ceoUser.email,
     subject: `[FYI] Executive PTO: ${requester.first_name} ${requester.last_name} — ${dateRange}`,
     html: `

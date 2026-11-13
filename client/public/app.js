@@ -8,10 +8,11 @@
   // ── State ──
   let token = localStorage.getItem('ps_token');
   let currentUser = null;
-  let activeTab = 'clock';
+  let activeTab = 'home';
   let clockStatus = { clocked_in: false, current_entry: null };
   let clockInterval = null;
   let pendingCount = 0;
+  let autoRefreshInterval = null;
 
   // ── API helper ──
   async function api(method, path, body) {
@@ -238,53 +239,49 @@
     // Check if user has approval permissions
     const canApprove = currentUser.level <= 2;
 
-    // Navbar
-    const navbar = h('nav', { className: 'navbar' },
-      h('h1', null, 'Project Sync'),
-      h('div', { className: 'user-info' },
-        h('span', null, `${currentUser.first_name} ${currentUser.last_name}`),
-        currentUser.office_code ? h('span', { className: 'text-sm', style: 'opacity:.7' }, `(${currentUser.office_code})`) : null,
-        h('button', { onClick: logout }, 'Sign Out'),
-      ),
-    );
-    app.appendChild(navbar);
-
-    // Container with tabs
-    const container = h('div', { className: 'container' });
-    app.appendChild(container);
-
-    // Build tabs
-    const tabList = [
-      { id: 'clock', label: 'Clock In/Out' },
-      { id: 'pto', label: 'Request PTO' },
-      { id: 'my-pto', label: 'My Requests' },
+    const role = currentUser.level === 1 ? 'Executive' : currentUser.level === 2 ? 'Supervisor' : 'Employee';
+    const menu = [
+      ['home','⌂','Home'],
+      ...(currentUser.level === 1 ? [] : [['clock','◷','Clock'],['pto','▦','Request PTO'],['my-pto','▤','My PTO']]),
+      ...(canApprove ? [['approvals','☷',currentUser.level === 1 ? 'PTO Approvals' : 'Approvals']] : []),
+      ...(currentUser.level === 1 ? [['reports','▥','Attendance']] : []),
+      ...(currentUser.level !== 1 && canApprove ? [['reports','▥','Reports']] : []),
+      
+      ['calendar','▦','PTO Calendar'],
     ];
-    if (canApprove) tabList.push({ id: 'approvals', label: 'Approvals' });
-    if (currentUser.level <= 2) tabList.push({ id: 'reports', label: 'Reports' });
-
-    const tabsDiv = h('div', { className: 'tabs' });
-    tabList.forEach((t) => {
-      const btn = h('button', {
-        className: `tab${activeTab === t.id ? ' active' : ''}`,
-        id: `tab-${t.id}`,
-        onClick: () => switchTab(t.id),
-      }, t.label);
-      if (t.id === 'approvals' && pendingCount > 0) {
-        btn.appendChild(h('span', { className: 'count' }, String(pendingCount)));
-      }
-      tabsDiv.appendChild(btn);
-    });
-    container.appendChild(tabsDiv);
-
-    // Tab content
-    const content = h('div', { id: 'tab-content' });
-    container.appendChild(content);
-
-    // Load initial tab
+    const shell = h('div', { className: 'sync-shell' });
+    const sidebar = h('aside', { className: 'sync-sidebar' },
+      h('div', { className: 'sync-brand' },
+        h('img', { className: 'brand-logo-image', src: '/assets/visiting-angels-reference-logo.png', alt: 'Visiting Angels' }),
+        h('div', { className: 'brand-divider' }),
+        h('div', { className: 'brand-project' }, h('span', { className: 'brand-sync-symbol', 'aria-hidden': 'true' }, '⟳'), 'Project Sync'),
+        h('div', { className: 'brand-caption' }, 'Workforce • Attendance • PTO')),
+      h('nav', { className: 'sync-nav', 'aria-label': 'Main navigation' },
+        ...menu.map(([id,icon,label]) => h('button', { className: `sync-nav-item${activeTab === id ? ' active' : ''}`, id: `tab-${id}`, onClick: () => switchTab(id) },
+          h('span', { className: 'nav-icon', 'aria-hidden': 'true' }, icon), label,
+          id === 'approvals' && pendingCount ? h('span', { className: 'count' }, String(pendingCount)) : null))),
+      h('div', { className: 'sidebar-art', 'aria-hidden': 'true' }));
+    const main = h('main', { className: 'sync-main' },
+      h('header', { className: 'sync-header' },
+        h('div', { className: 'welcome-copy' },
+          h('span', { className: 'welcome-spark', 'aria-hidden': 'true' }, '✳'),
+          h('h1', { id: 'welcome-heading' }, `Welcome back, ${currentUser.first_name}!`),
+          h('p', { id: 'welcome-subtitle' }, role === 'Executive' ? 'Organization overview across all offices.' : role === 'Supervisor' ? "Here's your team overview." : "Here's your attendance and PTO overview.")),
+        h('div', { className: 'header-right' },
+          h('button', { className: 'refresh-btn', id: 'refresh-btn', title: 'Refresh data', 'aria-label': 'Refresh data', onClick: () => refreshCurrentTab() },
+            h('span', { className: 'refresh-icon' }, '⟳')),
+          h('div', { className: 'date-pill' }, h('span', { className: 'date-icon', 'aria-hidden': 'true' }, '▣'), new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })),
+          h('div', { className: 'sync-user' },
+            h('div', { className: 'user-avatar' }, (currentUser.first_name?.[0] || '') + (currentUser.last_name?.[0] || '')),
+            h('div', { className: 'user-meta' }, h('strong', null, `${currentUser.first_name} ${currentUser.last_name}`), h('small', null, `${role}${currentUser.office_code ? ' – ' + currentUser.office_code : ''}`)),
+            h('button', { className: 'profile-chevron', onClick: () => { const el = document.querySelector('.profile-menu'); if(el) el.hidden = !el.hidden; }, 'aria-label': 'Profile menu', 'aria-expanded': 'false' }, '⌄'),
+            h('div', { className: 'profile-menu', hidden: true }, h('button', { onClick: logout }, 'Sign out'))))),
+      h('div', { className: 'sync-content', id: 'tab-content' }));
+    shell.append(sidebar, main);
+    app.appendChild(shell);
     switchTab(activeTab);
-
-    // Fetch pending count for approvals badge
     if (canApprove) loadPendingCount();
+    startAutoRefresh();
   }
 
   async function loadPendingCount() {
@@ -302,19 +299,151 @@
     }
   }
 
-  function switchTab(tabId) {
-    activeTab = tabId;
-    $$('.tab').forEach((t) => t.classList.toggle('active', t.id === `tab-${tabId}`));
-    const content = $('#tab-content');
-    content.innerHTML = '';
+  async function refreshCurrentTab() {
+    const btn = document.getElementById('refresh-btn');
+    if (btn) btn.classList.add('spinning');
+    switchTab(activeTab);
+    loadPendingCount();
+    setTimeout(() => { if (btn) btn.classList.remove('spinning'); }, 600);
+  }
 
+  function startAutoRefresh() {
+    if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+    autoRefreshInterval = setInterval(() => {
+      refreshCurrentTab();
+    }, 60000); // 1 minute
+  }
+
+  function switchTab(tabId) {
+    if (clockInterval) { clearInterval(clockInterval); clockInterval = null; }
+    if (tabId === 'approvals' && currentUser.level > 2 || tabId === 'reports' && currentUser.level > 2) tabId = 'home';
+    activeTab = tabId;
+    $$('.sync-nav-item').forEach((t) => t.classList.toggle('active', t.id === `tab-${tabId}`));
+    const content = $('#tab-content');
+    if (!content) return;
+    content.innerHTML = '';
+    const heading = $('#welcome-heading');
+    if (heading) heading.textContent = tabId === 'home' ? `Welcome back, ${currentUser.first_name}!` : ({ clock:'Your Attendance',pto:'Request Time Off','my-pto':'My PTO',approvals:'PTO Approvals',reports:'Reports',calendar:'PTO Calendar' }[tabId] || 'Project Sync');
     switch (tabId) {
+      case 'home': renderHome(content); break;
       case 'clock': renderClockTab(content); break;
       case 'pto': renderPTOTab(content); break;
       case 'my-pto': renderMyPTOTab(content); break;
       case 'approvals': renderApprovalsTab(content); break;
       case 'reports': renderReportsTab(content); break;
+      case 'calendar': renderReportsTab(content); break;
     }
+  }
+
+  function syncCard(title, subtitle, className) {
+    return h('section', { className: `sync-card ${className || ''}` },
+      h('h2', null, title), subtitle ? h('p', { className: 'card-subtitle' }, subtitle) : null);
+  }
+  function syncMetric(value, label) {
+    return h('div', { className: 'sync-metric' }, h('strong', null, String(value)), h('span', null, label));
+  }
+  function syncAction(label, target, className = '') {
+    return h('button', { className: `sync-action ${className}`, onClick: () => switchTab(target) }, label + '  →');
+  }
+  function renderHome(container) {
+    if (currentUser.level === 1) return renderExecutiveHome(container);
+    if (currentUser.level === 2) return renderSupervisorHome(container);
+    return renderEmployeeHome(container);
+  }
+  async function renderEmployeeHome(container) {
+    const grid = h('div', { className: 'home-grid employee-grid' });
+    const attendance = syncCard('◷  Your Attendance', 'Track your work hours for today.', 'attendance-card');
+    const time = h('div', { className: 'hero-time' });
+    const date = h('div', { className: 'hero-date' });
+    function tick() { const now = new Date(); time.textContent = now.toLocaleTimeString('en-US', { hour:'2-digit', minute:'2-digit', second:'2-digit' }); date.textContent = now.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric', year:'numeric' }); }
+    tick(); clockInterval = setInterval(tick, 1000);
+    const status = h('div', { className: 'location-strip' }, 'Checking attendance status…');
+    const action = h('button', { className: 'sync-action clock-home-button', disabled: 'true' }, 'Loading…');
+    attendance.append(time, date, action, status);
+    const balance = syncCard('▦  My PTO Balance', null, 'balance-card');
+    balance.append(h('div', { className: 'hero-balance' }, '—'), h('div', { className: 'balance-caption' }, 'Balance not available from current API'), syncAction('View My PTO', 'my-pto'));
+    const upcoming = syncCard('▦  Upcoming Time Off', null, 'upcoming-card');
+    upcoming.append(h('p', { className: 'text-muted' }, 'Loading requests…'));
+    const activity = syncCard('⌁  Recent Activity', null, 'activity-card');
+    activity.append(h('p', { className: 'text-muted' }, 'Loading activity…'));
+    grid.append(attendance,balance,upcoming,activity); container.appendChild(grid);
+    const [clock, requests, history] = await Promise.all([api('GET','/clock/status'), api('GET','/pto/my-requests'), api('GET','/clock/history')]);
+    if (activeTab !== 'home' || !container.isConnected) return;
+    if (clock?.ok) {
+      clockStatus = clock.data;
+      action.disabled = false;
+      action.textContent = clockStatus.clocked_in ? '↪  Clock Out' : '⇥  Clock In';
+      status.textContent = clockStatus.clocked_in ? `● Clocked in since ${formatTime(clockStatus.current_entry?.clock_in)}` : `${currentUser.office_code || 'Assigned office'} · Location verified at clock-in (200 m geofence)`;
+      action.onclick = async () => {
+        action.disabled = true; action.textContent = 'Checking location…';
+        try {
+          const location = await getLocation();
+          const result = await api('POST', clockStatus.clocked_in ? '/clock/out' : '/clock/in', location);
+          if (!result?.ok) throw new Error(result?.data?.error || 'Clock action failed');
+          switchTab('home');
+        } catch (error) { status.textContent = error.message; action.disabled = false; action.textContent = clockStatus.clocked_in ? '↪  Clock Out' : '⇥  Clock In'; }
+      };
+    } else { status.textContent = 'Attendance status unavailable'; action.textContent = 'Unavailable'; }
+    upcoming.querySelector('p')?.remove();
+    const today = [new Date().getFullYear(), String(new Date().getMonth()+1).padStart(2,'0'), String(new Date().getDate()).padStart(2,'0')].join('-');
+    const next = requests?.ok ? requests.data.requests.filter(r => r.status === 'approved' && r.end_date >= today).sort((a,b) => a.start_date.localeCompare(b.start_date))[0] : null;
+    if (next) upcoming.append(h('div', { className: 'upcoming-row' }, h('strong', null, `${next.start_date} – ${next.end_date}`), h('span', null, next.reason || 'Approved time off'), statusBadge('approved')));
+    else upcoming.append(h('p', { className: 'text-muted' }, requests?.ok ? 'No upcoming approved time off.' : 'Unable to load time off.'));
+    activity.querySelector('p')?.remove();
+    if (history?.ok && history.data.entries.length) history.data.entries.slice(0,3).forEach(e => activity.append(h('div', { className: 'activity-row' }, h('span', null, e.clock_out ? '◷  Clocked out' : '◷  Clocked in'), h('small', null, formatTime(e.clock_out || e.clock_in)))));
+    else activity.append(h('p', { className: 'text-muted' }, history?.ok ? 'No recent attendance activity.' : 'Activity unavailable.'));
+  }
+  async function renderSupervisorHome(container) {
+    const grid = h('div', { className: 'home-grid supervisor-grid' });
+    const team = syncCard('♙  Team Attendance', null, 'team-card');
+    const approvals = syncCard('▦  Pending Approvals', null, 'approval-card');
+    const overview = syncCard('▥  Team PTO Overview', null, 'overview-card');
+    const recent = syncCard('⌁  Recent Team Activity', null, 'recent-card');
+    [team,approvals,overview,recent].forEach(c => c.append(h('p', { className: 'text-muted' }, 'Loading…')));
+    grid.append(team,approvals,overview,recent); container.appendChild(grid);
+    const [entries,pending] = await Promise.all([api('GET','/clock/all'),api('GET','/pto/pending')]);
+    if (activeTab !== 'home' || !container.isConnected) return;
+    team.querySelector('p')?.remove(); approvals.querySelector('p')?.remove(); overview.querySelector('p')?.remove(); recent.querySelector('p')?.remove();
+    if (entries?.ok) {
+      const today = [new Date().getFullYear(), String(new Date().getMonth()+1).padStart(2,'0'), String(new Date().getDate()).padStart(2,'0')].join('-');
+      const todayEntries = entries.data.entries.filter(e => e.clock_in?.slice(0,10) === today);
+      const active = new Set(todayEntries.filter(e => !e.clock_out).map(e => e.user_id)).size;
+      team.append(h('div', { className:'metric-row' }, syncMetric(active,'Currently Clocked In'),syncMetric(new Set(todayEntries.map(e=>e.user_id)).size,'Clocked In Today')));
+      todayEntries.slice(0,3).forEach(e => recent.append(h('div',{className:'activity-row'}, h('span',null,e.user_name || 'Team member'),h('small',null,formatTime(e.clock_in)))));
+      if (!todayEntries.length) recent.append(h('p',{className:'text-muted'},'No clock activity today.'));
+    } else { team.append(h('p',null,'Attendance unavailable')); recent.append(h('p',null,'Activity unavailable')); }
+    approvals.append(syncMetric(pending?.ok ? pending.data.requests.length : '—','Pending PTO Requests'),syncAction('Review All','approvals'));
+    overview.append(h('p',{className:'text-muted'},'Review approved time off and team availability in reports.'),syncAction('View Reports','reports'));
+  }
+  async function renderExecutiveHome(container) {
+    const grid = h('div', { className:'home-grid executive-grid' });
+    const attendance = syncCard('▥  Organization Attendance', null, 'org-card');
+    const approvals = syncCard('▦  PTO Approvals', null, 'approval-card');
+    const metrics = syncCard('▥  Key Metrics', null, 'metrics-card');
+    const recent = syncCard('⌁  Recent Activity', null, 'recent-card');
+    [attendance,approvals,metrics,recent].forEach(c=>c.append(h('p',{className:'text-muted'},'Loading…')));
+    grid.append(attendance,approvals,metrics,recent); container.appendChild(grid);
+    const [users,entries,pending] = await Promise.all([api('GET','/admin/users'),api('GET','/clock/all'),api('GET','/pto/pending')]);
+    if (activeTab !== 'home' || !container.isConnected) return;
+    [attendance,approvals,metrics,recent].forEach(c=>c.querySelector('p')?.remove());
+    if (users?.ok && entries?.ok) {
+      const people = users.data.users || [];
+      const today = [new Date().getFullYear(), String(new Date().getMonth()+1).padStart(2,'0'), String(new Date().getDate()).padStart(2,'0')].join('-');
+      const todayEntries = entries.data.entries.filter(e=>e.clock_in?.slice(0,10)===today);
+      const active = new Set(todayEntries.filter(e=>!e.clock_out).map(e=>e.user_id));
+      const bars = h('div',{className:'office-bars'});
+      [...new Set(people.map(u=>u.office_code).filter(Boolean))].sort().forEach(office=>{
+        const officeUsers=people.filter(u=>u.office_code===office);
+        const count=officeUsers.filter(u=>active.has(u.id)).length;
+        const pct=officeUsers.length ? Math.round(count/officeUsers.length*100) : 0;
+        bars.append(h('div',{className:'office-bar'},h('strong',null,`${pct}%`),h('div',{className:'bar-track'},h('div',{className:'bar-fill',style:`height:${pct}%`})),h('small',null,office)));
+      });
+      attendance.append(bars,syncAction('View Details','reports'));
+      metrics.append(h('div',{className:'metric-row'},syncMetric(people.length,'Total Employees'),syncMetric(active.size,'Clocked In Now'),syncMetric(new Set(todayEntries.map(e=>e.user_id)).size,'Clocked In Today')));
+      todayEntries.slice(0,3).forEach(e=>recent.append(h('div',{className:'activity-row'},h('span',null,e.user_name || 'Employee'),h('small',null,formatTime(e.clock_in)))));
+      if (!todayEntries.length) recent.append(h('p',{className:'text-muted'},'No attendance activity today.'));
+    } else { attendance.append(h('p',null,'Organization data unavailable')); metrics.append(h('p',null,'Metrics unavailable')); recent.append(h('p',null,'Activity unavailable')); }
+    approvals.append(syncMetric(pending?.ok ? pending.data.requests.length : '—','Pending Requests'),syncAction('Review All','approvals'));
   }
 
   // ── Clock Tab ──
@@ -629,30 +758,66 @@
           ),
           r.reason ? h('p', { className: 'text-sm mt-2' }, r.reason) : null,
           r.escalation_reason ? h('p', { className: 'text-sm mt-2', style: 'color:var(--warning)' }, `Escalation: ${r.escalation_reason}`) : null,
-          h('div', { className: 'flex-row mt-4' },
+          h('div', { className: 'flex-row mt-4 approval-actions' },
             h('button', {
               className: 'btn btn-success btn-sm',
-              onClick: async () => {
-                const result = await api('POST', '/pto/approve', { request_id: r.id });
-                if (result && result.ok) {
-                  switchTab('approvals');
-                  loadPendingCount();
-                } else {
-                  alert(result?.data?.error || 'Failed to approve');
+              onClick: async (e) => {
+                const btn = e.currentTarget;
+                const actionsRow = btn.closest('.approval-actions');
+                const denyBtn = actionsRow?.querySelector('.btn-danger');
+                btn.disabled = true;
+                if (denyBtn) denyBtn.disabled = true;
+                btn.innerHTML = '<span class="btn-spinner"></span> Approving…';
+                try {
+                  const result = await api('POST', '/pto/approve', { request_id: r.id });
+                  if (result && result.ok) {
+                    btn.innerHTML = '✓ Approved';
+                    btn.className = 'btn btn-success btn-sm btn-done';
+                    if (denyBtn) denyBtn.style.display = 'none';
+                    setTimeout(() => { switchTab('approvals'); loadPendingCount(); }, 800);
+                  } else {
+                    btn.disabled = false;
+                    if (denyBtn) denyBtn.disabled = false;
+                    btn.textContent = 'Approve';
+                    alert(result?.data?.error || 'Failed to approve');
+                  }
+                } catch (err) {
+                  btn.disabled = false;
+                  if (denyBtn) denyBtn.disabled = false;
+                  btn.textContent = 'Approve';
+                  alert('Network error — please try again');
                 }
               },
             }, 'Approve'),
             h('button', {
               className: 'btn btn-danger btn-sm',
-              onClick: async () => {
+              onClick: async (e) => {
                 const reason = prompt('Reason for denial (optional):');
                 if (reason === null) return; // cancelled prompt
-                const result = await api('POST', '/pto/deny', { request_id: r.id, reason });
-                if (result && result.ok) {
-                  switchTab('approvals');
-                  loadPendingCount();
-                } else {
-                  alert(result?.data?.error || 'Failed to deny');
+                const btn = e.currentTarget;
+                const actionsRow = btn.closest('.approval-actions');
+                const approveBtn = actionsRow?.querySelector('.btn-success');
+                btn.disabled = true;
+                if (approveBtn) approveBtn.disabled = true;
+                btn.innerHTML = '<span class="btn-spinner"></span> Denying…';
+                try {
+                  const result = await api('POST', '/pto/deny', { request_id: r.id, reason });
+                  if (result && result.ok) {
+                    btn.innerHTML = '✗ Denied';
+                    btn.className = 'btn btn-danger btn-sm btn-done';
+                    if (approveBtn) approveBtn.style.display = 'none';
+                    setTimeout(() => { switchTab('approvals'); loadPendingCount(); }, 800);
+                  } else {
+                    btn.disabled = false;
+                    if (approveBtn) approveBtn.disabled = false;
+                    btn.textContent = 'Deny';
+                    alert(result?.data?.error || 'Failed to deny');
+                  }
+                } catch (err) {
+                  btn.disabled = false;
+                  if (approveBtn) approveBtn.disabled = false;
+                  btn.textContent = 'Deny';
+                  alert('Network error — please try again');
                 }
               },
             }, 'Deny'),

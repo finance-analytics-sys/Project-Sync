@@ -25,21 +25,21 @@ const offices = [
 
 // ── Level 1 — Executives (final approvers) ──
 const executives = [
-  { first: 'Stephen', last: 'Maiale',  email: 'stephen.maiale@visitingangels.com'  },
-  { first: 'Rochelle', last: 'Sajda',  email: 'rochelle.sajda@visitingangels.com'  },
-  { first: 'Mona R',   last: 'Nandy',  email: 'mona.nandy@visitingangels.com'      },
+  { first: 'Stephen', last: 'Maiale',  email: 'christophersmith0580+stephen@gmail.com'  },
+  { first: 'Rochelle', last: 'Sajda',  email: 'christophersmith0580+rochelle@gmail.com'  },
+  { first: 'Mona R',   last: 'Nandy',  email: 'christophersmith0580+mona@gmail.com'      },
 ];
 
 // ── CEO (email-only visibility, not an approver) ──
-const ceo = { first: 'Ananda', last: 'Nandy', email: 'ananda.nandy@visitingangels.com' };
+const ceo = { first: 'Ananda', last: 'Nandy', email: 'christophersmith0580+ceo@gmail.com' };
 
 // ── Level 2 — Office Managers (one per office) ──
 const managers = [
-  { first: 'Wayne',    last: 'Preno',     office: 'JT',  email: 'wayne.preno@visitingangels.com'    },
-  { first: 'Robert',   last: 'Hartzman',  office: 'CF',  email: 'robert.hartzman@visitingangels.com' },
-  { first: 'Austin',   last: 'Zuerlein',  office: 'ML',  email: 'austin.zuerlein@visitingangels.com' },
-  { first: 'Kalpesh',  last: 'Patel',     office: 'CC',  email: 'kalpesh.patel@visitingangels.com'   },
-  { first: 'Leslie',   last: 'Ross',      office: 'KOP', email: 'leslie.ross@visitingangels.com'     },
+  { first: 'Wayne',    last: 'Preno',     office: 'JT',  email: 'christophersmith0580+wayne@gmail.com'    },
+  { first: 'Robert',   last: 'Hartzman',  office: 'CF',  email: 'christophersmith0580+robert@gmail.com' },
+  { first: 'Austin',   last: 'Zuerlein',  office: 'ML',  email: 'christophersmith0580+austin@gmail.com' },
+  { first: 'Kalpesh',  last: 'Patel',     office: 'CC',  email: 'christophersmith0580+kalpesh@gmail.com'   },
+  { first: 'Leslie',   last: 'Ross',      office: 'KOP', email: 'christophersmith0580+leslie@gmail.com'     },
 ];
 
 // ── Exempt employees (skip Level 2, go directly to all 3 executives) ──
