@@ -34,12 +34,18 @@ function smtpSend({ from, to, subject, html, text }) {
 
       socket.on('data', (data) => {
         buffer += data.toString();
-        // Wait for complete response (ends with \r\n)
-        if (!buffer.endsWith('\r\n')) return;
+        // SMTP multi-line responses use "250-" (dash) for continuation lines
+        // and "250 " (space) for the final line.  Wait until the last
+        // non-empty line is a final response before advancing the state machine.
+        const lines = buffer.split('\r\n').filter(l => l.length > 0);
+        if (lines.length === 0) return;
+        const lastLine = lines[lines.length - 1];
+        if (lastLine.length >= 4 && lastLine[3] === '-') return; // more lines coming
+
         const response = buffer.trim();
         buffer = '';
 
-        const code = parseInt(response.substring(0, 3), 10);
+        const code = parseInt(lastLine.substring(0, 3), 10);
 
         if (step === 0) {
           // Server greeting
