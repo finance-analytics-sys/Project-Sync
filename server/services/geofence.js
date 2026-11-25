@@ -43,18 +43,20 @@ function captureLocation(userOfficeCode, latitude, longitude) {
 }
 
 /**
- * Format location for display: "Jenkintown (45m)" or "Remote — 2.3km from Jenkintown"
+ * Format location for display: "Jenkintown (148ft)" or "Remote — 8.1mi from Jenkintown"
  */
 function formatLocationLabel(officeCode, latitude, longitude) {
   const result = captureLocation(officeCode, latitude, longitude);
   if (!result.office) return 'Unknown location';
 
+  const feet = Math.round(result.distance * 3.28084);
+  const miles = (result.distance / 1609.344).toFixed(1);
+
   if (result.withinGeofence) {
-    return `${result.office.name} (${result.distance}m)`;
+    return `${result.office.name} (${feet}ft)`;
   }
 
-  const km = (result.distance / 1000).toFixed(1);
-  return `Remote — ${result.distance > 1000 ? km + 'km' : result.distance + 'm'} from ${result.office.name}`;
+  return `Remote — ${result.distance > 1609 ? miles + 'mi' : feet + 'ft'} from ${result.office.name}`;
 }
 
 // Keep old export name for backward compatibility during transition
