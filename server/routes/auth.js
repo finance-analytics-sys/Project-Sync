@@ -36,6 +36,8 @@ function handleLogin(body) {
   const token = createToken({
     id: user.id,
     email: user.email,
+    first_name: user.first_name,
+    last_name: user.last_name,
     role: user.role,
     level: user.level,
     office_code: user.office_code,
@@ -175,6 +177,8 @@ async function handleGoogleLogin(body) {
   const token = createToken({
     id: user.id,
     email: user.email,
+    first_name: user.first_name,
+    last_name: user.last_name,
     role: user.role,
     level: user.level,
     office_code: user.office_code,
