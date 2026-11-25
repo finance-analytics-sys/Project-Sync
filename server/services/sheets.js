@@ -204,10 +204,13 @@ async function appendRows(tab, rows) {
 
 // ── Date Formatting ──
 
+const TIMEZONE = process.env.APP_TIMEZONE || 'America/New_York';
+
 function formatDateTimeForSheet(isoString) {
   if (!isoString) return '';
   const d = new Date(isoString);
   return d.toLocaleString('en-US', {
+    timeZone: TIMEZONE,
     month: 'short', day: 'numeric', year: 'numeric',
     hour: 'numeric', minute: '2-digit', hour12: true,
   });
@@ -216,7 +219,7 @@ function formatDateTimeForSheet(isoString) {
 function formatDateForSheet(dateStr) {
   if (!dateStr) return '';
   const d = new Date(dateStr + 'T00:00:00');
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString('en-US', { timeZone: TIMEZONE, month: 'short', day: 'numeric' });
 }
 
 function formatDateRangeForSheet(startDate, endDate) {
