@@ -40,6 +40,15 @@ function handleClockIn(body, authUser) {
     comment: comment && comment.trim() ? comment.trim() : null,
   });
 
+  // Write to Google Sheets immediately on clock-in (async, non-blocking)
+  if (sheets.isConfigured()) {
+    const user = db.findOne('users', (u) => u.id === authUser.id);
+    const office = user ? db.findOne('offices', (o) => o.code === user.office_code) : null;
+    sheets.writeTimecardEntry(entry, user || authUser, office?.name || '').catch((err) => {
+      console.error('[Clock] Sheets clock-in write failed (non-fatal):', err.message);
+    });
+  }
+
   return {
     status: 200,
     body: {
@@ -84,12 +93,12 @@ function handleClockOut(body, authUser) {
 
   const updatedEntry = db.update('clock_entries', openEntry.id, updates);
 
-  // Write to Google Sheets (async, non-blocking — don't fail clock-out if Sheets is down)
+  // Update the existing "Currently Clocked In" row in Sheets (async, non-blocking)
   if (sheets.isConfigured()) {
     const user = db.findOne('users', (u) => u.id === authUser.id);
     const office = user ? db.findOne('offices', (o) => o.code === user.office_code) : null;
-    sheets.writeTimecardEntry(updatedEntry, user || authUser, office?.name || '').catch((err) => {
-      console.error('[Clock] Sheets write failed (non-fatal):', err.message);
+    sheets.updateTimecardClockOut(updatedEntry, user || authUser, office?.name || '').catch((err) => {
+      console.error('[Clock] Sheets clock-out update failed (non-fatal):', err.message);
     });
   }
 

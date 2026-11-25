@@ -174,6 +174,20 @@ function sheetsRequest(method, path, body) {
   });
 }
 
+async function updateRange(tab, range, values) {
+  const fullRange = `${tab}!${range}`;
+  const result = await sheetsRequest('PUT',
+    `/values/${encodeURIComponent(fullRange)}?valueInputOption=USER_ENTERED`,
+    { values },
+  );
+  if (result.error) {
+    console.error(`[Sheets] updateRange ${fullRange} failed:`, result.error);
+  } else {
+    console.log(`[Sheets] Updated ${fullRange}`);
+  }
+  return result;
+}
+
 async function appendRows(tab, rows) {
   const range = `${tab}!A:Z`;
   const result = await sheetsRequest('POST',
@@ -213,28 +227,74 @@ function formatDateRangeForSheet(startDate, endDate) {
 // ── Public API ──
 
 /**
- * Write a clock-out entry to the Timecard tab.
- * Called when an employee clocks out (we have all the data at that point).
+ * Write a timecard row to the Timecard tab.
+ * Called on CLOCK-IN: writes immediately with "Currently Clocked In" placeholder.
+ * Called on CLOCK-OUT (legacy fallback): writes the full completed entry.
  *
  * Columns: Name | Office | Clock in Location | Clock in time | Clock out time | Hours | Job code | Comment
  */
 async function writeTimecardEntry(entry, user, officeName) {
-  const hours = entry.clock_in && entry.clock_out
+  const hasClockOut = !!entry.clock_out;
+  const hours = hasClockOut
     ? ((new Date(entry.clock_out) - new Date(entry.clock_in)) / 3600000).toFixed(2)
-    : '';
+    : '0';
 
   const row = [
     `${user.first_name} ${user.last_name}`,
     officeName || user.office_code || '',
     entry.clock_in_location || '',
     formatDateTimeForSheet(entry.clock_in),
-    formatDateTimeForSheet(entry.clock_out),
+    hasClockOut ? formatDateTimeForSheet(entry.clock_out) : 'Currently Clocked In',
     hours,
     entry.job_code || 'Regular',
     entry.comment || '',
   ];
 
   return appendRows(TIMECARD_TAB, [row]);
+}
+
+/**
+ * Update an existing timecard row on CLOCK-OUT.
+ * Finds the row matching the employee name + "Currently Clocked In" placeholder,
+ * then updates clock-out time, hours, and comment.
+ */
+async function updateTimecardClockOut(entry, user, officeName) {
+  const rows = await readRows(TIMECARD_TAB);
+  if (!rows || rows.length <= 1) return { error: 'No rows to update' };
+
+  const fullName = `${user.first_name} ${user.last_name}`;
+  const clockInFormatted = formatDateTimeForSheet(entry.clock_in);
+
+  // Find the row with matching name and "Currently Clocked In" placeholder
+  let targetRow = -1;
+  for (let i = rows.length - 1; i >= 1; i--) {
+    const r = rows[i];
+    if (r && r[0] === fullName && r[4] === 'Currently Clocked In') {
+      // Double-check clock-in time matches if available
+      if (clockInFormatted && r[3] === clockInFormatted) {
+        targetRow = i + 1; // Sheets rows are 1-indexed
+        break;
+      }
+      // If clock-in time doesn't match exactly, still use it as fallback
+      if (!targetRow) targetRow = i + 1;
+    }
+  }
+
+  if (targetRow === -1) {
+    console.warn(`[Sheets] No "Currently Clocked In" row found for ${fullName}, writing full entry instead`);
+    return writeTimecardEntry(entry, user, officeName);
+  }
+
+  const hours = ((new Date(entry.clock_out) - new Date(entry.clock_in)) / 3600000).toFixed(2);
+
+  // Update columns E (clock out), F (hours), H (comment) on the target row
+  const clockOutFormatted = formatDateTimeForSheet(entry.clock_out);
+  const comment = entry.comment || '';
+
+  // Update E:H (clock out time, hours, job code, comment) in one call
+  return updateRange(TIMECARD_TAB, `E${targetRow}:H${targetRow}`, [
+    [clockOutFormatted, hours, entry.job_code || 'Regular', comment],
+  ]);
 }
 
 /**
@@ -427,6 +487,7 @@ function isConfigured() {
 
 module.exports = {
   writeTimecardEntry,
+  updateTimecardClockOut,
   writeApprovedPTO,
   writePTOTimecardEntries,
   writeHolidayTimecardEntries,
