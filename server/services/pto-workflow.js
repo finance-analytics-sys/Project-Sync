@@ -400,7 +400,35 @@ async function editPTO(requestId, userId, updates) {
   return { success: true, request: updatedRequest };
 }
 
+// ── Executive Cancel (approved PTO) ──
+
+async function executiveCancelPTO(requestId, executiveId, cancelComment) {
+  const request = db.findOne('pto_requests', (r) => r.id === requestId);
+  if (!request) return { error: 'Request not found' };
+
+  const executive = db.findOne('users', (u) => u.id === executiveId);
+  if (!executive) return { error: 'User not found' };
+  if (executive.level > 1) return { error: 'Only executives (L1) can cancel approved PTO' };
+
+  if (request.status !== 'approved') {
+    return { error: `Cannot cancel — request is ${request.status}, not approved` };
+  }
+
+  const requester = db.findOne('users', (u) => u.id === request.requester_id);
+
+  db.update('pto_requests', requestId, {
+    status: 'cancelled',
+    cancelled_by: executiveId,
+    cancel_comment: cancelComment || null,
+    executive_cancelled: true,
+  });
+
+  await email.ptoExecutiveCancelledEmail(request, requester, executive, cancelComment);
+
+  return { success: true, status: 'cancelled' };
+}
+
 module.exports = {
-  submitPTO, approvePTO, denyPTO, cancelPTO, editPTO,
+  submitPTO, approvePTO, denyPTO, cancelPTO, editPTO, executiveCancelPTO,
   getApprovalPath, requiresHolidayEscalation,
 };

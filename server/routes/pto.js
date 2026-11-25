@@ -197,8 +197,36 @@ function handleGetCalendar(authUser, query) {
   };
 }
 
+function handleGetAllApproved(authUser) {
+  if (authUser.level > 1) {
+    return { status: 403, body: { error: 'Insufficient permissions' } };
+  }
+
+  const requests = db.findAll('pto_requests', (r) => r.status === 'approved');
+  const enriched = requests.map((r) => {
+    const requester = db.findOne('users', (u) => u.id === r.requester_id);
+    return {
+      ...r,
+      requester_name: requester ? `${requester.first_name} ${requester.last_name}` : 'Unknown',
+      requester_email: requester?.email,
+      requester_office: requester?.office_code || 'HQ',
+    };
+  });
+
+  enriched.sort((a, b) => new Date(b.start_date) - new Date(a.start_date));
+  return { status: 200, body: { requests: enriched } };
+}
+
+async function handleExecutiveCancel(body, authUser) {
+  const { request_id, cancel_comment } = body;
+  if (!request_id) return { status: 400, body: { error: 'request_id is required' } };
+  const result = await workflow.executiveCancelPTO(request_id, authUser.id, cancel_comment);
+  if (result.error) return { status: 400, body: { error: result.error } };
+  return { status: 200, body: result };
+}
+
 module.exports = {
   handleSubmit, handleApprove, handleDeny, handleCancel, handleEdit,
   handleGetMyRequests, handleGetPendingApprovals, handleGetAllRequests,
-  handleGetCalendar,
+  handleGetCalendar, handleGetAllApproved, handleExecutiveCancel,
 };

@@ -119,16 +119,17 @@ function seed() {
     officeMap[o.code] = record;
   }
 
-  // Insert CEO (email-only, no login needed but we create an account)
+  // Insert CEO as executive (level 1) with platform access but no email notifications
   db.insert('users', {
     first_name: ceo.first,
     last_name: ceo.last,
     email: ceo.email,
     password_hash: defaultPassword,
-    role: 'ceo',
-    level: 0,
+    role: 'executive',
+    level: 1,
     office_code: null,
     is_exempt: false,
+    no_email: true,
   });
 
   // Insert executives (Level 1)

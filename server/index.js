@@ -23,8 +23,9 @@ if (fs.existsSync(envPath)) {
 const { requireAuth, requireLevel } = require('./middleware/auth');
 const { handleLogin, handleGoogleLogin, handleChangePassword, handleGetMe } = require('./routes/auth');
 const { handleClockIn, handleClockOut, handleGetStatus, handleGetHistory, handleGetAllEntries } = require('./routes/clock');
-const { handleSubmit, handleApprove, handleDeny, handleCancel, handleEdit, handleGetMyRequests, handleGetPendingApprovals, handleGetAllRequests, handleGetCalendar } = require('./routes/pto');
+const { handleSubmit, handleApprove, handleDeny, handleCancel, handleEdit, handleGetMyRequests, handleGetPendingApprovals, handleGetAllRequests, handleGetCalendar, handleGetAllApproved, handleExecutiveCancel } = require('./routes/pto');
 const { handleGetUsers, handleGetOffices, handleGetHolidays } = require('./routes/admin');
+const { handleGetLogs } = require('./routes/logs');
 const emailService = require('./services/email');
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -228,6 +229,27 @@ async function handleRequest(req, res) {
         const user = requireAuth(req, res);
         if (!user) return;
         result = handleGetCalendar(user, query);
+      }
+
+      else if (pathname === '/api/pto/all-approved' && req.method === 'GET') {
+        const user = requireAuth(req, res);
+        if (!user) return;
+        result = handleGetAllApproved(user);
+      }
+
+      // ── PTO Executive Cancel ──
+      else if (pathname === '/api/pto/executive-cancel' && req.method === 'POST') {
+        const user = requireAuth(req, res);
+        if (!user) return;
+        const body = await parseBody(req);
+        result = await handleExecutiveCancel(body, user);
+      }
+
+      // ── Logs ──
+      else if (pathname === '/api/logs' && req.method === 'GET') {
+        const user = requireAuth(req, res);
+        if (!user) return;
+        result = handleGetLogs(user, query);
       }
 
       // ── Admin ──

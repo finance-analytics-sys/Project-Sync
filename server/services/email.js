@@ -150,6 +150,29 @@ async function sendEmail({ to, subject, html, text }) {
   }
 }
 
+// ── Helpers ──
+
+/**
+ * Filter out users with no_email flag set.
+ * Accepts an array of user objects or email strings.
+ * Returns filtered array of the same type.
+ */
+function filterEmailRecipients(recipients) {
+  if (!Array.isArray(recipients) || recipients.length === 0) return recipients;
+
+  // If recipients are user objects (have .email and potentially .no_email)
+  if (typeof recipients[0] === 'object' && recipients[0].email) {
+    return recipients.filter((u) => !u.no_email);
+  }
+
+  // If recipients are email strings, look up each user to check no_email flag
+  const db = require('../db');
+  return recipients.filter((emailAddr) => {
+    const user = db.findOne('users', (u) => u.email === emailAddr);
+    return !user || !user.no_email;
+  });
+}
+
 // ── PTO notification templates ──
 
 /** Convert YYYY-MM-DD → MM-DD-YYYY for email display */
@@ -167,7 +190,8 @@ function formatHoursDays(request) {
 }
 
 async function ptoSubmittedEmail(request, requester, approvers) {
-  const approverEmails = approvers.map((a) => a.email);
+  const approverEmails = filterEmailRecipients(approvers).map((a) => a.email);
+  if (approverEmails.length === 0) return; // All approvers have no_email
   const dateRange = request.start_date === request.end_date
     ? fmtDate(request.start_date)
     : `${fmtDate(request.start_date)} – ${fmtDate(request.end_date)}`;
@@ -220,13 +244,15 @@ async function ptoApprovedEmail(request, requester, approver, isFinal) {
 }
 
 async function ptoEscalatedEmail(request, requester, executives) {
+  const filteredExecs = filterEmailRecipients(executives);
+  if (filteredExecs.length === 0) return;
   const dateRange = request.start_date === request.end_date
     ? fmtDate(request.start_date)
     : `${fmtDate(request.start_date)} – ${fmtDate(request.end_date)}`;
   const hoursInfo = formatHoursDays(request);
 
   await sendEmail({
-    to: executives.map((e) => e.email),
+    to: filteredExecs.map((e) => e.email),
     subject: `[PTO Escalation] ${requester.first_name} ${requester.last_name} — ${dateRange}${hoursInfo ? ` (${hoursInfo})` : ''}`,
     html: `
       <h3>PTO Request Escalated for Executive Approval</h3>
@@ -257,12 +283,14 @@ async function ptoDeniedEmail(request, requester, denier) {
 }
 
 async function ptoCancelledEmail(request, requester, notifyEmails) {
+  const filtered = filterEmailRecipients(notifyEmails);
+  if (filtered.length === 0) return;
   const dateRange = request.start_date === request.end_date
     ? fmtDate(request.start_date)
     : `${fmtDate(request.start_date)} – ${fmtDate(request.end_date)}`;
 
   await sendEmail({
-    to: notifyEmails,
+    to: filtered,
     subject: `[PTO] ${requester.first_name} ${requester.last_name} cancelled request for ${dateRange}`,
     html: `
       <h3>PTO Request Cancelled</h3>
@@ -272,13 +300,15 @@ async function ptoCancelledEmail(request, requester, notifyEmails) {
 }
 
 async function ptoEditedEmail(request, requester, notifyEmails) {
+  const filtered = filterEmailRecipients(notifyEmails);
+  if (filtered.length === 0) return;
   const dateRange = request.start_date === request.end_date
     ? fmtDate(request.start_date)
     : `${fmtDate(request.start_date)} – ${fmtDate(request.end_date)}`;
   const hoursInfo = formatHoursDays(request);
 
   await sendEmail({
-    to: notifyEmails,
+    to: filtered,
     subject: `[PTO] ${requester.first_name} ${requester.last_name} edited request — now ${dateRange}`,
     html: `
       <h3>PTO Request Edited</h3>
@@ -296,8 +326,11 @@ async function ceoNotificationEmail(request, requester) {
     : `${fmtDate(request.start_date)} – ${fmtDate(request.end_date)}`;
   const hoursInfo = formatHoursDays(request);
 
-  const ceoUser = require('../db').findOne('users', (u) => u.role === 'ceo');
+  // Find CEO user — now stored as executive with no_email flag
+  const ceoDb = require('../db');
+  const ceoUser = ceoDb.findOne('users', (u) => u.first_name === 'Ananda' && u.last_name === 'Nandy');
   if (!ceoUser) return;
+  if (ceoUser.no_email) return; // CEO opted out of email notifications
 
   await sendEmail({
     to: ceoUser.email,
@@ -312,9 +345,45 @@ async function ceoNotificationEmail(request, requester) {
   });
 }
 
+async function ptoExecutiveCancelledEmail(request, requester, cancelledBy, cancelComment) {
+  const dateRange = request.start_date === request.end_date
+    ? fmtDate(request.start_date)
+    : `${fmtDate(request.start_date)} – ${fmtDate(request.end_date)}`;
+  const hoursInfo = formatHoursDays(request);
+
+  // Notify the employee whose PTO was cancelled
+  await sendEmail({
+    to: requester.email,
+    subject: `[PTO] Your approved request for ${dateRange} has been CANCELLED by ${cancelledBy.first_name} ${cancelledBy.last_name}`,
+    html: `
+      <h3>PTO Request Cancelled by Executive</h3>
+      <p>Your approved PTO request for <strong>${dateRange}</strong>${hoursInfo ? ` — <strong>${hoursInfo}</strong>` : ''} has been cancelled by <strong>${cancelledBy.first_name} ${cancelledBy.last_name}</strong>.</p>
+      ${cancelComment ? `<p><strong>Reason:</strong> ${cancelComment}</p>` : ''}
+      <p>If you have questions, please contact your manager or the executive who cancelled the request.</p>
+    `,
+  });
+
+  // Notify other executives (except the one who cancelled and those with no_email)
+  const otherExecs = filterEmailRecipients(
+    require('../db').findAll('users', (u) => u.level === 1 && u.id !== cancelledBy.id)
+  );
+  if (otherExecs.length > 0) {
+    await sendEmail({
+      to: otherExecs.map((e) => e.email),
+      subject: `[PTO] ${requester.first_name} ${requester.last_name}'s approved PTO cancelled by ${cancelledBy.first_name}`,
+      html: `
+        <h3>Approved PTO Cancelled</h3>
+        <p><strong>${cancelledBy.first_name} ${cancelledBy.last_name}</strong> has cancelled <strong>${requester.first_name} ${requester.last_name}</strong>'s approved PTO for <strong>${dateRange}</strong>.</p>
+        ${cancelComment ? `<p><strong>Reason:</strong> ${cancelComment}</p>` : ''}
+      `,
+    });
+  }
+}
+
 module.exports = {
   init,
   sendEmail,
+  filterEmailRecipients,
   ptoSubmittedEmail,
   ptoApprovedEmail,
   ptoEscalatedEmail,
@@ -322,4 +391,5 @@ module.exports = {
   ptoCancelledEmail,
   ptoEditedEmail,
   ceoNotificationEmail,
+  ptoExecutiveCancelledEmail,
 };
