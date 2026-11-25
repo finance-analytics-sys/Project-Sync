@@ -1407,8 +1407,8 @@
                 h('td', null, e.name),
                 h('td', null, e.office),
                 h('td', { className: 'text-sm' }, e.clock_in_location),
-                h('td', { className: 'text-sm' }, e.clock_in_time ? formatTime(e.clock_in_time) : '—'),
-                h('td', { className: 'text-sm' }, e.clock_out_time ? formatTime(e.clock_out_time) : '—'),
+                h('td', { className: 'text-sm' }, e.clock_in_time ? (e.clock_in_time.includes('T') ? formatTime(e.clock_in_time) : e.clock_in_time) : '—'),
+                h('td', { className: 'text-sm' }, e.clock_out_time ? (e.clock_out_time.includes('T') ? formatTime(e.clock_out_time) : e.clock_out_time) : '—'),
                 h('td', null, e.hours || '—'),
                 h('td', null,
                   h('span', {

@@ -249,7 +249,7 @@ async function handleRequest(req, res) {
       else if (pathname === '/api/logs' && req.method === 'GET') {
         const user = requireAuth(req, res);
         if (!user) return;
-        result = handleGetLogs(user, query);
+        result = await handleGetLogs(user, query);
       }
 
       // ── Admin ──

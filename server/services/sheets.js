@@ -313,6 +313,111 @@ async function writeHolidayTimecardEntries(/* holidayDate, employees */) {
   return { stub: true };
 }
 
+// ── Read Helpers ──
+
+/**
+ * Read all rows from a tab. Returns array of row arrays (strings).
+ */
+async function readRows(tab) {
+  const range = `${tab}!A:Z`;
+  const result = await sheetsRequest('GET', `/values/${encodeURIComponent(range)}`);
+  if (result.error) {
+    console.error(`[Sheets] readRows from ${tab} failed:`, result.error);
+    return [];
+  }
+  return result.values || [];
+}
+
+/**
+ * Read timecard entries from the Timecard tab in Google Sheets.
+ * Returns enriched entries matching the Logs API format.
+ *
+ * Columns: Name | Office | Clock in Location | Clock in time | Clock out time | Hours | Job code | Comment
+ *
+ * Supports filters: start_date, end_date, office, user_name, job_code
+ */
+async function readTimecardEntries(filters = {}) {
+  const rows = await readRows(TIMECARD_TAB);
+  if (rows.length <= 1) return []; // header only or empty
+
+  // Skip header row
+  const entries = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || !r.length) continue;
+
+    const name = r[0] || '';
+    const office = r[1] || '';
+    const clockInLocation = r[2] || '';
+    const clockInTime = r[3] || '';
+    const clockOutTime = r[4] || '';
+    const hours = r[5] || '';
+    const jobCode = r[6] || 'Regular';
+    const comment = r[7] || '';
+
+    // Parse clock-in date for filtering (format: "Nov 25, 2026, 2:29 PM")
+    let clockInDate = '';
+    if (clockInTime) {
+      try {
+        const parsed = new Date(clockInTime);
+        if (!isNaN(parsed.getTime())) {
+          clockInDate = parsed.toISOString().slice(0, 10);
+        }
+      } catch (e) { /* ignore parse errors */ }
+    }
+
+    // Apply filters
+    if (filters.start_date && clockInDate && clockInDate < filters.start_date) continue;
+    if (filters.end_date && clockInDate && clockInDate > filters.end_date) continue;
+    if (filters.office && office.toLowerCase() !== filters.office.toLowerCase()) continue;
+    if (filters.user_name && !name.toLowerCase().includes(filters.user_name.toLowerCase())) continue;
+    if (filters.job_code && jobCode.toLowerCase() !== filters.job_code.toLowerCase()) continue;
+
+    entries.push({
+      id: `sheet-row-${i + 1}`,
+      name,
+      office,
+      clock_in_location: clockInLocation,
+      clock_in_time: clockInTime,
+      clock_out_time: clockOutTime,
+      hours,
+      job_code: jobCode,
+      comment,
+      _row: i + 1,
+    });
+  }
+
+  // Sort by most recent first (reverse row order — newest appended last)
+  entries.reverse();
+
+  return entries;
+}
+
+/**
+ * Read PTO entries from the PTO tab in Google Sheets.
+ */
+async function readPTOEntries() {
+  const rows = await readRows(PTO_TAB);
+  if (rows.length <= 1) return [];
+
+  const entries = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || !r.length) continue;
+    entries.push({
+      id: `pto-row-${i + 1}`,
+      name: r[0] || '',
+      office: r[1] || '',
+      pto_date: r[2] || '',
+      hours_requested: r[3] || '',
+      reason: r[4] || '',
+      _row: i + 1,
+    });
+  }
+  entries.reverse();
+  return entries;
+}
+
 /**
  * Check if Sheets integration is configured and ready.
  */
@@ -325,6 +430,8 @@ module.exports = {
   writeApprovedPTO,
   writePTOTimecardEntries,
   writeHolidayTimecardEntries,
+  readTimecardEntries,
+  readPTOEntries,
   isConfigured,
   // Exposed for testing
   getAccessToken,

@@ -1,16 +1,57 @@
 /**
  * Logs routes — executive-only view of all clock entries.
+ * Reads from Google Sheets (source of truth) with JSON DB fallback.
  * Columns match the Timecard spreadsheet exactly:
  *   Name, Office, Clock in Location, Clock in time, Clock out time, Hours, Job Code, Comment
  */
 const db = require('../db');
+const sheets = require('../services/sheets');
 
-function handleGetLogs(authUser, query) {
+async function handleGetLogs(authUser, query) {
   // Executive-only (L1 and CEO)
   if (authUser.level > 1) {
     return { status: 403, body: { error: 'Logs section is for executives only' } };
   }
 
+  // Try Google Sheets first (persistent, survives deploys)
+  if (sheets.isConfigured()) {
+    try {
+      // Map office code to office name for Sheets filtering
+      let officeName = '';
+      if (query.office) {
+        const office = db.findOne('offices', (o) => o.code === query.office);
+        officeName = office ? office.name : query.office;
+      }
+
+      // Map user_id to user name for Sheets filtering
+      let userName = '';
+      if (query.user_id) {
+        const user = db.findOne('users', (u) => u.id === query.user_id);
+        userName = user ? `${user.first_name} ${user.last_name}` : '';
+      }
+
+      const entries = await sheets.readTimecardEntries({
+        start_date: query.start_date || '',
+        end_date: query.end_date || '',
+        office: officeName,
+        user_name: userName,
+        job_code: query.job_code || '',
+      });
+
+      return {
+        status: 200,
+        body: {
+          entries: entries.slice(0, 1000),
+          total: entries.length,
+          source: 'sheets',
+        },
+      };
+    } catch (err) {
+      console.error('[Logs] Sheets read failed, falling back to DB:', err.message);
+    }
+  }
+
+  // Fallback: read from local JSON database
   let entries = db.findAll('clock_entries');
 
   // Enrich with user and office data
@@ -84,6 +125,7 @@ function handleGetLogs(authUser, query) {
     body: {
       entries: entries.slice(0, 1000),
       total: entries.length,
+      source: 'db',
     },
   };
 }
