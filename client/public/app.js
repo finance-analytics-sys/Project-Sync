@@ -707,21 +707,114 @@
                 statusDisplay = statusBadge(r.status);
               }
 
-              // Can cancel/edit only if fully pending
-              const canModify = r.status === 'pending' && r.l2_status !== 'approved' && r.l1_status !== 'approved';
+              // Can cancel/edit if pending or approved (approved requires confirmation)
+              const isActive = r.status === 'pending' || r.status === 'approved';
+              const isApproved = r.status === 'approved';
+              const hasPartialApproval = r.l2_status === 'approved' || r.l1_status === 'approved';
 
               const actions = h('td', null);
-              if (canModify) {
+              if (isActive) {
+                // Cancel button
                 actions.appendChild(h('button', {
                   className: 'btn btn-outline btn-sm',
-                  onClick: async () => {
+                  style: 'margin-right:6px;',
+                  onClick: async (e) => {
+                    const btn = e.currentTarget;
+                    if (isApproved || hasPartialApproval) {
+                      // First attempt without force — backend returns CONFIRM_REQUIRED
+                      const check = await api('POST', '/pto/cancel', { request_id: r.id });
+                      if (check?.data?.requires_confirmation) {
+                        if (!confirm(check.data.message)) return;
+                        // Re-submit with force_cancel
+                        btn.disabled = true;
+                        btn.innerHTML = '<span class="btn-spinner"></span> Cancelling…';
+                        const result = await api('POST', '/pto/cancel', { request_id: r.id, force_cancel: true });
+                        if (result && result.ok && result.data.status === 'cancelled') switchTab('my-pto');
+                        else { btn.disabled = false; btn.textContent = 'Cancel'; alert(result?.data?.error || 'Failed to cancel'); }
+                        return;
+                      }
+                    }
+                    // Fully pending — simple confirm
                     if (confirm('Cancel this PTO request?')) {
+                      btn.disabled = true;
+                      btn.innerHTML = '<span class="btn-spinner"></span> Cancelling…';
                       const result = await api('POST', '/pto/cancel', { request_id: r.id });
                       if (result && result.ok) switchTab('my-pto');
-                      else alert(result?.data?.error || 'Failed to cancel');
+                      else { btn.disabled = false; btn.textContent = 'Cancel'; alert(result?.data?.error || 'Failed to cancel'); }
                     }
                   },
                 }, 'Cancel'));
+
+                // Edit button
+                actions.appendChild(h('button', {
+                  className: 'btn btn-outline btn-sm',
+                  onClick: async () => {
+                    // Pre-fill PTO form with this request's data
+                    switchTab('pto');
+                    // Wait for the form to render then fill it
+                    setTimeout(() => {
+                      const startEl = $('#pto-start');
+                      const endEl = $('#pto-end');
+                      const hoursEl = $('#pto-hours');
+                      const reasonEl = $('#pto-reason');
+                      if (startEl) startEl.value = r.start_date;
+                      if (endEl) endEl.value = r.end_date;
+                      if (hoursEl) hoursEl.value = r.pto_hours || '';
+                      if (reasonEl) reasonEl.value = r.reason || '';
+                      updateHoursSummary();
+
+                      // Replace form submit to call edit endpoint
+                      const form = $('#pto-form');
+                      if (form) {
+                        const msgEl = $('#pto-msg');
+                        const btn = $('#pto-btn');
+                        if (btn) btn.textContent = 'Save Changes';
+                        if (msgEl && (isApproved || hasPartialApproval)) {
+                          msgEl.innerHTML = '<div class="alert alert-warning">⚠ Editing this approved PTO will reset it to pending and require re-approval.</div>';
+                        } else if (msgEl) {
+                          msgEl.innerHTML = '<div class="alert alert-info">Editing PTO request — update the fields and save.</div>';
+                        }
+
+                        form.onsubmit = async (e) => {
+                          e.preventDefault();
+                          const editPayload = {
+                            request_id: r.id,
+                            start_date: $('#pto-start').value,
+                            end_date: $('#pto-end').value,
+                            hours: Number($('#pto-hours').value),
+                            reason: $('#pto-reason').value,
+                          };
+
+                          if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+                          // Try edit — may return CONFIRM_REQUIRED
+                          let result = await api('POST', '/pto/edit', editPayload);
+                          if (result?.data?.requires_confirmation) {
+                            if (!confirm(result.data.message)) {
+                              if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+                              return;
+                            }
+                            // Re-submit with force_edit
+                            editPayload.force_edit = true;
+                            result = await api('POST', '/pto/edit', editPayload);
+                          }
+
+                          if (result && result.ok && result.data.success) {
+                            const info = result.data.was_reset
+                              ? 'PTO updated and reset to pending — re-approval required.'
+                              : 'PTO request updated successfully.';
+                            if (msgEl) msgEl.innerHTML = `<div class="alert alert-success">${info}</div>`;
+                            if (btn) { btn.disabled = false; btn.textContent = 'Submit Request'; }
+                            setTimeout(() => switchTab('my-pto'), 1200);
+                          } else {
+                            if (msgEl) msgEl.innerHTML = `<div class="alert alert-error">${result?.data?.error || 'Failed to update'}</div>`;
+                            if (btn) { btn.disabled = false; btn.textContent = 'Save Changes'; }
+                          }
+                        };
+                      }
+                    }, 100);
+                  },
+                }, 'Edit'));
               }
 
               return h('tr', null,

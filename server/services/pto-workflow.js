@@ -9,10 +9,13 @@
  * 4. Exempt employees (James Staats, Kyle Carter, Hannah Rice): skip L2, go directly to all 3 execs.
  * 5. L2 managers requesting PTO: go to L1 executives.
  * 6. L1 executives requesting PTO: go to the OTHER 2 executives + CEO email-only notification.
- * 7. Edit/cancel only allowed while fully pending (no approvals given at any level).
+ * 7. Edit/cancel: free while fully pending. Approved PTO can also be edited (resets to pending)
+ *    or cancelled by employee (with confirmation) or by executive (see executiveCancelPTO).
+ * 8. Stubs for: Viventium PTO balance, auto-cancel, insufficient balance lockout, partial-day PTO.
  */
 const db = require('../db');
 const email = require('./email');
+const sheets = require('./sheets');
 
 // ── Date helpers ──
 
@@ -235,6 +238,14 @@ async function approvePTO(requestId, approverId) {
       db.update('pto_requests', requestId, { status: 'approved' });
       const updatedRequest = db.findOne('pto_requests', (r) => r.id === requestId);
       await email.ptoApprovedEmail(updatedRequest, requester, approver, true);
+
+      // Write to Google Sheets: PTO tab + auto-generate PTO timecard entries
+      if (sheets.isConfigured()) {
+        const office = db.findOne('offices', (o) => o.code === requester.office_code);
+        sheets.writeApprovedPTO(updatedRequest, requester, office?.name).catch((e) => console.error('[PTO] Sheets PTO write failed:', e.message));
+        sheets.writePTOTimecardEntries(updatedRequest, requester, office?.name).catch((e) => console.error('[PTO] Sheets timecard write failed:', e.message));
+      }
+
       return { success: true, status: 'approved', request: updatedRequest };
     }
   }
@@ -261,6 +272,14 @@ async function approvePTO(requestId, approverId) {
 
     const updatedRequest = db.findOne('pto_requests', (r) => r.id === requestId);
     await email.ptoApprovedEmail(updatedRequest, requester, approver, true);
+
+    // Write to Google Sheets: PTO tab + auto-generate PTO timecard entries
+    if (sheets.isConfigured()) {
+      const office = db.findOne('offices', (o) => o.code === requester.office_code);
+      sheets.writeApprovedPTO(updatedRequest, requester, office?.name).catch((e) => console.error('[PTO] Sheets PTO write failed:', e.message));
+      sheets.writePTOTimecardEntries(updatedRequest, requester, office?.name).catch((e) => console.error('[PTO] Sheets timecard write failed:', e.message));
+    }
+
     return { success: true, status: 'approved', request: updatedRequest };
   }
 
@@ -307,50 +326,43 @@ async function denyPTO(requestId, denierId, denialReason) {
   return { success: true, status: 'denied', request: updatedRequest };
 }
 
-// ── Cancel PTO ──
+// ── Cancel PTO (legacy wrapper — routes still call cancelPTO) ──
 
-async function cancelPTO(requestId, userId) {
-  const request = db.findOne('pto_requests', (r) => r.id === requestId);
-  if (!request) return { error: 'Request not found' };
-  if (request.requester_id !== userId) return { error: 'You can only cancel your own requests' };
-  if (request.status !== 'pending') return { error: 'Can only cancel pending requests' };
-
-  // Check if any approval has been given
-  if (request.l2_status === 'approved' || request.l1_status === 'approved') {
-    return { error: 'Cannot cancel — approval has already been given at one or more levels' };
-  }
-
-  db.update('pto_requests', requestId, { status: 'cancelled' });
-
-  const requester = db.findOne('users', (u) => u.id === userId);
-  // Notify relevant approvers about cancellation
-  const notifyEmails = [];
-  if (request.l2_approver_id) {
-    const mgr = db.findOne('users', (u) => u.id === request.l2_approver_id);
-    if (mgr) notifyEmails.push(mgr.email);
-  }
-  if (request.needs_l1) {
-    db.findAll('users', (u) => u.level === 1).forEach((e) => notifyEmails.push(e.email));
-  }
-
-  if (notifyEmails.length > 0) {
-    await email.ptoCancelledEmail(request, requester, notifyEmails);
-  }
-
-  return { success: true, status: 'cancelled' };
+async function cancelPTO(requestId, userId, forceCancel) {
+  return cancelPTOv2(requestId, userId, forceCancel);
 }
 
 // ── Edit PTO ──
+//
+// Two cases:
+//   1. Fully pending (no approvals at any level) — free edit, no warnings needed
+//   2. Approved PTO — resets to pending, re-enters approval pipeline, employee gets warning
+//      The frontend must show a confirmation dialog before submitting with force_edit=true
+//
+// Partially approved (L2 approved, awaiting L1) — treated same as approved: resets all.
 
 async function editPTO(requestId, userId, updates) {
   const request = db.findOne('pto_requests', (r) => r.id === requestId);
   if (!request) return { error: 'Request not found' };
   if (request.requester_id !== userId) return { error: 'You can only edit your own requests' };
-  if (request.status !== 'pending') return { error: 'Can only edit pending requests' };
 
-  // Check if any approval has been given
-  if (request.l2_status === 'approved' || request.l1_status === 'approved') {
-    return { error: 'Cannot edit — approval has already been given at one or more levels' };
+  // Cancelled and denied requests cannot be edited
+  if (request.status === 'cancelled' || request.status === 'denied') {
+    return { error: `Cannot edit a ${request.status} request` };
+  }
+
+  const wasApproved = request.status === 'approved';
+  const hadPartialApproval = request.l2_status === 'approved' || request.l1_status === 'approved';
+
+  // If request was approved or partially approved, require force_edit flag
+  if ((wasApproved || hadPartialApproval) && !updates.force_edit) {
+    return {
+      error: 'CONFIRM_REQUIRED',
+      message: wasApproved
+        ? 'This PTO has already been approved. Editing it will reset it to pending and require re-approval from all levels.'
+        : 'This PTO has partial approval. Editing it will reset all approvals and require re-approval.',
+      requires_confirmation: true,
+    };
   }
 
   const newStart = updates.start_date || request.start_date;
@@ -373,31 +385,155 @@ async function editPTO(requestId, userId, updates) {
   const newHours = updates.hours !== undefined ? Number(updates.hours) : (request.pto_hours || dateCount * 8);
   const newDays = newHours / 8;
 
-  db.update('pto_requests', requestId, {
+  // Build update object — always reset approval status when editing
+  const updateObj = {
     start_date: newStart,
     end_date: newEnd,
     reason: updates.reason !== undefined ? updates.reason : request.reason,
     pto_hours: newHours,
     pto_days: newDays,
+    status: 'pending',
+    needs_l2: path.needsL2 || false,
     needs_l1: path.needsL1 || false,
+    l2_status: path.needsL2 ? 'pending' : 'not_required',
     l1_status: path.needsL1 ? 'pending' : 'not_required',
+    l2_approved_by: null,
+    l1_approved_by: null,
+    approval_path: path.type,
+    l2_approver_id: path.l2Approver?.id || request.l2_approver_id || null,
     escalation_reason: path.escalationReason || holidayCheck.reason || null,
-  });
+    denial_reason: null,
+    denied_by: null,
+  };
+
+  // Track that this was re-submitted after approval
+  if (wasApproved || hadPartialApproval) {
+    updateObj.edited_after_approval = true;
+    updateObj.previous_approval_status = wasApproved ? 'approved' : 'partially_approved';
+  }
+
+  db.update('pto_requests', requestId, updateObj);
 
   const updatedRequest = db.findOne('pto_requests', (r) => r.id === requestId);
 
   // Notify relevant people about the edit
   const notifyEmails = [];
+  if (updatedRequest.l2_approver_id) {
+    const mgr = db.findOne('users', (u) => u.id === updatedRequest.l2_approver_id);
+    if (mgr) notifyEmails.push(mgr.email);
+  }
+  if (wasApproved || hadPartialApproval) {
+    // Also notify executives if this was an approved PTO being reset
+    db.findAll('users', (u) => u.level === 1).forEach((e) => notifyEmails.push(e.email));
+  }
+
+  if (notifyEmails.length > 0) {
+    await email.ptoEditedEmail(updatedRequest, requester, [...new Set(notifyEmails)]);
+  }
+
+  return {
+    success: true,
+    request: updatedRequest,
+    was_reset: wasApproved || hadPartialApproval,
+  };
+}
+
+// ── Cancel PTO (employee) ──
+//
+// Employees can cancel freely while fully pending.
+// Approved PTO: employees CAN cancel their own approved PTO, but get a confirmation warning.
+// The frontend must show a dialog before submitting with force_cancel=true.
+
+async function cancelPTOv2(requestId, userId, forceCancel) {
+  const request = db.findOne('pto_requests', (r) => r.id === requestId);
+  if (!request) return { error: 'Request not found' };
+  if (request.requester_id !== userId) return { error: 'You can only cancel your own requests' };
+
+  if (request.status === 'cancelled' || request.status === 'denied') {
+    return { error: `Request is already ${request.status}` };
+  }
+
+  const wasApproved = request.status === 'approved';
+  const hadPartialApproval = request.l2_status === 'approved' || request.l1_status === 'approved';
+
+  // If approved or partially approved, require force_cancel flag
+  if ((wasApproved || hadPartialApproval) && !forceCancel) {
+    return {
+      error: 'CONFIRM_REQUIRED',
+      message: wasApproved
+        ? 'This PTO has been approved. Are you sure you want to cancel it?'
+        : 'This PTO has partial approval. Are you sure you want to cancel it?',
+      requires_confirmation: true,
+    };
+  }
+
+  db.update('pto_requests', requestId, { status: 'cancelled' });
+
+  const requester = db.findOne('users', (u) => u.id === userId);
+  const notifyEmails = [];
   if (request.l2_approver_id) {
     const mgr = db.findOne('users', (u) => u.id === request.l2_approver_id);
     if (mgr) notifyEmails.push(mgr.email);
   }
-
-  if (notifyEmails.length > 0) {
-    await email.ptoEditedEmail(updatedRequest, requester, notifyEmails);
+  if (request.needs_l1 || wasApproved) {
+    db.findAll('users', (u) => u.level === 1).forEach((e) => notifyEmails.push(e.email));
   }
 
-  return { success: true, request: updatedRequest };
+  if (notifyEmails.length > 0) {
+    await email.ptoCancelledEmail(request, requester, [...new Set(notifyEmails)]);
+  }
+
+  return { success: true, status: 'cancelled' };
+}
+
+// ── Stubs for future features ──
+
+/**
+ * STUB: Viventium PTO Balance
+ * When integrated, this will fetch real-time PTO balance from Viventium API
+ * for the given employee. Currently returns a placeholder.
+ */
+function getViventiumPTOBalance(/* userId */) {
+  // TODO: Integrate with Viventium API
+  // Expected response: { available_hours, used_hours, total_hours, accrual_rate }
+  return { available_hours: null, used_hours: null, total_hours: null, source: 'not_connected' };
+}
+
+/**
+ * STUB: Auto-cancel system
+ * When a PTO request is not actioned within N days, it should be auto-cancelled
+ * and the employee notified. This will be run as a daily cron job.
+ */
+function processAutoCancellations() {
+  // TODO: Implement auto-cancel logic
+  // 1. Find pending requests older than X days
+  // 2. Cancel them
+  // 3. Notify employees
+  return { processed: 0, cancelled: 0 };
+}
+
+/**
+ * STUB: Insufficient PTO balance lockout
+ * Before submitting a PTO request, check if the employee has enough balance.
+ * If not, block the submission with a clear error message.
+ */
+function checkSufficientBalance(/* userId, requestedHours */) {
+  // TODO: Requires Viventium integration
+  // For now, always allow submission
+  return { sufficient: true, available: null, requested: null };
+}
+
+/**
+ * STUB: Partial-day PTO
+ * Allow employees to request PTO for a portion of a day (e.g., half-day).
+ * Parked for executive discussion — will need UI changes and timecard logic.
+ */
+function validatePartialDayPTO(/* hours, date */) {
+  // TODO: Define rules for partial-day PTO
+  // - Minimum hours? (e.g., 1 hour minimum)
+  // - Only specific increments? (1, 2, 4, 8)
+  // - How does it interact with clock-in/clock-out for the remaining hours?
+  return { allowed: false, reason: 'Partial-day PTO is not yet enabled' };
 }
 
 // ── Executive Cancel (approved PTO) ──
@@ -431,4 +567,7 @@ async function executiveCancelPTO(requestId, executiveId, cancelComment) {
 module.exports = {
   submitPTO, approvePTO, denyPTO, cancelPTO, editPTO, executiveCancelPTO,
   getApprovalPath, requiresHolidayEscalation,
+  // Stubs — exported for future use
+  getViventiumPTOBalance, processAutoCancellations,
+  checkSufficientBalance, validatePartialDayPTO,
 };

@@ -31,18 +31,26 @@ async function handleDeny(body, authUser) {
 }
 
 async function handleCancel(body, authUser) {
-  const { request_id } = body;
+  const { request_id, force_cancel } = body;
   if (!request_id) return { status: 400, body: { error: 'request_id is required' } };
-  const result = await workflow.cancelPTO(request_id, authUser.id);
-  if (result.error) return { status: 400, body: { error: result.error } };
+  const result = await workflow.cancelPTO(request_id, authUser.id, force_cancel);
+  if (result.error) {
+    // CONFIRM_REQUIRED is not a real error — it's a signal to the frontend
+    const status = result.error === 'CONFIRM_REQUIRED' ? 200 : 400;
+    return { status, body: result };
+  }
   return { status: 200, body: result };
 }
 
 async function handleEdit(body, authUser) {
-  const { request_id, start_date, end_date, reason, hours } = body;
+  const { request_id, start_date, end_date, reason, hours, force_edit } = body;
   if (!request_id) return { status: 400, body: { error: 'request_id is required' } };
-  const result = await workflow.editPTO(request_id, authUser.id, { start_date, end_date, reason, hours });
-  if (result.error) return { status: 400, body: { error: result.error } };
+  const result = await workflow.editPTO(request_id, authUser.id, { start_date, end_date, reason, hours, force_edit });
+  if (result.error) {
+    // CONFIRM_REQUIRED is not a real error — it's a signal to the frontend
+    const status = result.error === 'CONFIRM_REQUIRED' ? 200 : 400;
+    return { status, body: result };
+  }
   return { status: 200, body: result };
 }
 
