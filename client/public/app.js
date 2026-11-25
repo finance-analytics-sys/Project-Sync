@@ -1322,53 +1322,66 @@
 
     const filterRow = h('div', { style: 'display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;' });
 
+    // Auto-apply helper — refresh logs on any filter change
+    const autoApply = () => { switchTab('logs'); };
+
     // Date range filters
     const startInput = h('input', {
       type: 'date', value: logsFilters.start_date,
       style: 'padding:6px 10px; border:1px solid var(--gray-300); border-radius:var(--radius); font-size:14px;',
-      onInput: (e) => { logsFilters.start_date = e.target.value; },
+      onChange: (e) => { logsFilters.start_date = e.target.value; autoApply(); },
     });
     const endInput = h('input', {
       type: 'date', value: logsFilters.end_date,
       style: 'padding:6px 10px; border:1px solid var(--gray-300); border-radius:var(--radius); font-size:14px;',
-      onInput: (e) => { logsFilters.end_date = e.target.value; },
+      onChange: (e) => { logsFilters.end_date = e.target.value; autoApply(); },
     });
 
-    // Office dropdown
+    // Helper to populate employee dropdown based on selected office
+    const userSelect = h('select', {
+      style: 'padding:6px 10px; border:1px solid var(--gray-300); border-radius:var(--radius); font-size:14px;',
+      onChange: (e) => { logsFilters.user_id = e.target.value; autoApply(); },
+    });
+
+    function populateUserSelect(officeCode) {
+      userSelect.innerHTML = '';
+      userSelect.appendChild(h('option', { value: 'all' }, 'All Employees'));
+      let filtered = allUsers;
+      if (officeCode && officeCode !== 'all') {
+        filtered = allUsers.filter((u) => u.office_code === officeCode);
+      }
+      filtered.sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)).forEach((u) => {
+        userSelect.appendChild(h('option', { value: u.id, ...(logsFilters.user_id === u.id ? { selected: 'true' } : {}) }, `${u.first_name} ${u.last_name}`));
+      });
+    }
+
+    // Office dropdown — changing office also filters the employee list
     const officeSelect = h('select', {
       style: 'padding:6px 10px; border:1px solid var(--gray-300); border-radius:var(--radius); font-size:14px;',
-      onInput: (e) => { logsFilters.office = e.target.value; },
+      onChange: (e) => {
+        logsFilters.office = e.target.value;
+        logsFilters.user_id = 'all'; // reset employee when office changes
+        populateUserSelect(e.target.value);
+        autoApply();
+      },
     });
     officeSelect.appendChild(h('option', { value: 'all' }, 'All Offices'));
     offices.forEach((o) => {
       officeSelect.appendChild(h('option', { value: o.code, ...(logsFilters.office === o.code ? { selected: 'true' } : {}) }, `${o.name} (${o.code})`));
     });
 
-    // Employee dropdown
-    const userSelect = h('select', {
-      style: 'padding:6px 10px; border:1px solid var(--gray-300); border-radius:var(--radius); font-size:14px;',
-      onInput: (e) => { logsFilters.user_id = e.target.value; },
-    });
-    userSelect.appendChild(h('option', { value: 'all' }, 'All Employees'));
-    allUsers.sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)).forEach((u) => {
-      userSelect.appendChild(h('option', { value: u.id, ...(logsFilters.user_id === u.id ? { selected: 'true' } : {}) }, `${u.first_name} ${u.last_name}`));
-    });
+    // Populate employee dropdown (filtered by current office selection)
+    populateUserSelect(logsFilters.office);
 
     // Job Code dropdown
     const jobCodeSelect = h('select', {
       style: 'padding:6px 10px; border:1px solid var(--gray-300); border-radius:var(--radius); font-size:14px;',
-      onInput: (e) => { logsFilters.job_code = e.target.value; },
+      onChange: (e) => { logsFilters.job_code = e.target.value; autoApply(); },
     });
     jobCodeSelect.appendChild(h('option', { value: 'all' }, 'All Job Codes'));
     ['Regular', 'PTO', 'Holiday'].forEach((jc) => {
       jobCodeSelect.appendChild(h('option', { value: jc, ...(logsFilters.job_code === jc ? { selected: 'true' } : {}) }, jc));
     });
-
-    // Apply button
-    const applyBtn = h('button', {
-      className: 'btn btn-primary btn-sm',
-      onClick: () => { switchTab('logs'); },
-    }, 'Apply Filters');
 
     // Clear button
     const clearBtn = h('button', {
@@ -1385,7 +1398,7 @@
       h('div', { className: 'form-group', style: 'margin-bottom:0;' }, h('label', { style: 'font-size:12px;' }, 'Office'), officeSelect),
       h('div', { className: 'form-group', style: 'margin-bottom:0;' }, h('label', { style: 'font-size:12px;' }, 'Employee'), userSelect),
       h('div', { className: 'form-group', style: 'margin-bottom:0;' }, h('label', { style: 'font-size:12px;' }, 'Job Code'), jobCodeSelect),
-      h('div', { style: 'display:flex; gap:8px; padding-bottom:2px;' }, applyBtn, clearBtn),
+      h('div', { style: 'display:flex; gap:8px; padding-bottom:2px;' }, clearBtn),
     );
 
     filterBar.appendChild(filterRow);
