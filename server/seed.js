@@ -44,7 +44,6 @@ const managers = [
 
 // ── Exempt employees (skip Level 2, go directly to all 3 executives) ──
 const exemptEmployees = [
-  { first: 'James',   last: 'Staats',  office: 'JT', email: 'james.staats@visitingangels.com'  },
   { first: 'Kyle J',  last: 'Carter',  office: 'ML', email: 'kyle.carter@visitingangels.com'   },
   { first: 'Hannah M', last: 'Rice',   office: 'JT', email: 'hannah.rice@visitingangels.com'   },
 ];

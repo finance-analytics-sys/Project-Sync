@@ -1,21 +1,20 @@
 /**
  * Clock-in / clock-out routes.
- * Simple timestamp logging with geofence validation.
+ * Captures GPS location as metadata (no geofence enforcement).
+ * Supports optional comment and job_code fields.
  */
 const db = require('../db');
-const { validateLocation } = require('../services/geofence');
+const { captureLocation, formatLocationLabel } = require('../services/geofence');
 
 function handleClockIn(body, authUser) {
-  const { latitude, longitude } = body;
+  const { latitude, longitude, comment } = body;
   if (latitude == null || longitude == null) {
     return { status: 400, body: { error: 'Location (latitude, longitude) is required' } };
   }
 
-  // Geofence check
-  const geoResult = validateLocation(authUser.office_code, latitude, longitude);
-  if (!geoResult.allowed) {
-    return { status: 403, body: { error: geoResult.reason } };
-  }
+  // Capture location metadata (no blocking)
+  const locResult = captureLocation(authUser.office_code, latitude, longitude);
+  const locationLabel = formatLocationLabel(authUser.office_code, latitude, longitude);
 
   // Check if already clocked in (has an open entry with no clock_out)
   const openEntry = db.findOne('clock_entries', (e) =>
@@ -32,31 +31,32 @@ function handleClockIn(body, authUser) {
     clock_out: null,
     clock_in_lat: latitude,
     clock_in_lng: longitude,
+    clock_in_location: locationLabel,
     clock_out_lat: null,
     clock_out_lng: null,
+    clock_out_location: null,
+    job_code: 'Regular',
+    comment: comment && comment.trim() ? comment.trim() : null,
   });
 
   return {
     status: 200,
     body: {
       success: true,
-      message: `Clocked in at ${geoResult.office.name} (${geoResult.distance}m from office)`,
+      message: `Clocked in — ${locationLabel}`,
       entry,
     },
   };
 }
 
 function handleClockOut(body, authUser) {
-  const { latitude, longitude } = body;
+  const { latitude, longitude, comment } = body;
   if (latitude == null || longitude == null) {
     return { status: 400, body: { error: 'Location (latitude, longitude) is required' } };
   }
 
-  // Geofence check
-  const geoResult = validateLocation(authUser.office_code, latitude, longitude);
-  if (!geoResult.allowed) {
-    return { status: 403, body: { error: geoResult.reason } };
-  }
+  // Capture location metadata (no blocking)
+  const locationLabel = formatLocationLabel(authUser.office_code, latitude, longitude);
 
   // Find open clock entry
   const openEntry = db.findOne('clock_entries', (e) =>
@@ -66,17 +66,28 @@ function handleClockOut(body, authUser) {
     return { status: 400, body: { error: 'You are not currently clocked in.' } };
   }
 
-  const updatedEntry = db.update('clock_entries', openEntry.id, {
+  // Build update — append comment if provided
+  const updates = {
     clock_out: new Date().toISOString(),
     clock_out_lat: latitude,
     clock_out_lng: longitude,
-  });
+    clock_out_location: locationLabel,
+  };
+
+  // If a clock-out comment is provided, append to existing comment
+  if (comment && comment.trim()) {
+    const existingComment = openEntry.comment || '';
+    const separator = existingComment ? ' | ' : '';
+    updates.comment = existingComment + separator + comment.trim();
+  }
+
+  const updatedEntry = db.update('clock_entries', openEntry.id, updates);
 
   return {
     status: 200,
     body: {
       success: true,
-      message: `Clocked out at ${geoResult.office.name}`,
+      message: `Clocked out — ${locationLabel}`,
       entry: updatedEntry,
     },
   };
@@ -130,13 +141,15 @@ function handleGetAllEntries(authUser, query) {
     return { status: 403, body: { error: 'Insufficient permissions' } };
   }
 
-  // Enrich with user names
+  // Enrich with user names and office info
   entries = entries.map((e) => {
     const user = db.findOne('users', (u) => u.id === e.user_id);
+    const office = user ? db.findOne('offices', (o) => o.code === user.office_code) : null;
     return {
       ...e,
       user_name: user ? `${user.first_name} ${user.last_name}` : 'Unknown',
       user_email: user?.email,
+      office_name: office?.name || e.office_code || '—',
     };
   });
 
@@ -146,7 +159,17 @@ function handleGetAllEntries(authUser, query) {
     entries = entries.filter((e) => e.clock_in.startsWith(query.date));
   }
 
-  return { status: 200, body: { entries: entries.slice(0, 200) } };
+  // Filter by office
+  if (query.office) {
+    entries = entries.filter((e) => e.office_code === query.office);
+  }
+
+  // Filter by user
+  if (query.user_id) {
+    entries = entries.filter((e) => e.user_id === query.user_id);
+  }
+
+  return { status: 200, body: { entries: entries.slice(0, 500) } };
 }
 
 module.exports = { handleClockIn, handleClockOut, handleGetStatus, handleGetHistory, handleGetAllEntries };

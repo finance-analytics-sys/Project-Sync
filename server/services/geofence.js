@@ -1,6 +1,10 @@
 /**
- * Geofence service — validates that a clock punch is within
- * the configured radius of the employee's assigned office.
+ * Location service — captures GPS coordinates and calculates
+ * distance to the employee's assigned office.
+ *
+ * Previously enforced a geofence radius; now captures location
+ * metadata only (no blocking). The haversine function and office
+ * lookup are kept for distance display in timecards and logs.
  */
 const db = require('../db');
 
@@ -21,26 +25,48 @@ function haversineMeters(lat1, lng1, lat2, lng2) {
 }
 
 /**
- * Check if coordinates are within the geofence of any office the user belongs to.
- * Returns { allowed, office, distance } or { allowed: false, reason }.
+ * Capture location metadata without enforcing any restriction.
+ * Returns { office, distance, withinGeofence } or { office: null } if no office assigned.
  */
-function validateLocation(userOfficeCode, latitude, longitude) {
+function captureLocation(userOfficeCode, latitude, longitude) {
   const office = db.findOne('offices', (o) => o.code === userOfficeCode);
   if (!office) {
-    return { allowed: false, reason: 'No office assigned to user' };
+    return { office: null, distance: null, withinGeofence: false };
   }
 
-  const distance = haversineMeters(latitude, longitude, office.latitude, office.longitude);
-  if (distance <= RADIUS_METERS) {
-    return { allowed: true, office, distance: Math.round(distance) };
-  }
-
+  const distance = Math.round(haversineMeters(latitude, longitude, office.latitude, office.longitude));
   return {
-    allowed: false,
-    reason: `You are ${Math.round(distance)}m from the ${office.name} office. Must be within ${RADIUS_METERS}m to clock in/out.`,
-    distance: Math.round(distance),
     office,
+    distance,
+    withinGeofence: distance <= RADIUS_METERS,
   };
 }
 
-module.exports = { validateLocation, haversineMeters, RADIUS_METERS };
+/**
+ * Format location for display: "Jenkintown (45m)" or "Remote — 2.3km from Jenkintown"
+ */
+function formatLocationLabel(officeCode, latitude, longitude) {
+  const result = captureLocation(officeCode, latitude, longitude);
+  if (!result.office) return 'Unknown location';
+
+  if (result.withinGeofence) {
+    return `${result.office.name} (${result.distance}m)`;
+  }
+
+  const km = (result.distance / 1000).toFixed(1);
+  return `Remote — ${result.distance > 1000 ? km + 'km' : result.distance + 'm'} from ${result.office.name}`;
+}
+
+// Keep old export name for backward compatibility during transition
+function validateLocation(userOfficeCode, latitude, longitude) {
+  const result = captureLocation(userOfficeCode, latitude, longitude);
+  // Always allowed now — no geofence enforcement
+  return {
+    allowed: true,
+    office: result.office,
+    distance: result.distance,
+    withinGeofence: result.withinGeofence,
+  };
+}
+
+module.exports = { validateLocation, captureLocation, formatLocationLabel, haversineMeters, RADIUS_METERS };
