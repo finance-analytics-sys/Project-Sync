@@ -1,17 +1,17 @@
 /**
- * Reverse geocoding service using HERE Geocoding & Search API.
+ * Reverse geocoding service using TomTom Reverse Geocoding API.
  *
  * Converts GPS coordinates (lat/lng) into a human-readable street address.
  * Uses a simple in-memory cache to avoid duplicate API calls for the same
  * location (employees often clock in from the same spot).
  *
- * Requires env var: HERE_API_KEY
+ * Requires env var: TOMTOM_API_KEY
  *
- * Free tier: 30,000 requests/month (more than enough for 38 employees).
+ * Free tier: 20,000 reverse geocoding requests/month (no credit card required).
  */
 const https = require('https');
 
-const HERE_API_KEY = process.env.HERE_API_KEY || '';
+const TOMTOM_API_KEY = process.env.TOMTOM_API_KEY || '';
 
 // ── In-memory cache ──
 // Key: rounded lat,lng (5 decimal places ≈ 1.1m precision)
@@ -48,7 +48,7 @@ function pruneCache() {
 }
 
 /**
- * Reverse geocode lat/lng to a street address using HERE API.
+ * Reverse geocode lat/lng to a street address using TomTom API.
  * Returns the address string, or null on failure.
  *
  * @param {number} latitude
@@ -56,8 +56,8 @@ function pruneCache() {
  * @returns {Promise<string|null>} Street address or null
  */
 async function reverseGeocode(latitude, longitude) {
-  if (!HERE_API_KEY) {
-    console.warn('[Geocode] No HERE_API_KEY configured — skipping reverse geocode');
+  if (!TOMTOM_API_KEY) {
+    console.warn('[Geocode] No TOMTOM_API_KEY configured — skipping reverse geocode');
     return null;
   }
 
@@ -72,10 +72,10 @@ async function reverseGeocode(latitude, longitude) {
   }
 
   return new Promise((resolve) => {
-    const path = `/v1/revgeocode?at=${latitude},${longitude}&lang=en-US&apiKey=${HERE_API_KEY}`;
+    const path = `/search/2/reverseGeocode/${latitude},${longitude}.json?key=${TOMTOM_API_KEY}&language=en-US`;
 
     const req = https.request({
-      hostname: 'revgeocode.search.hereapi.com',
+      hostname: 'api.tomtom.com',
       path,
       method: 'GET',
       headers: { 'Accept': 'application/json' },
@@ -87,14 +87,14 @@ async function reverseGeocode(latitude, longitude) {
           const data = JSON.parse(body);
 
           if (res.statusCode !== 200) {
-            console.error(`[Geocode] HERE API ${res.statusCode}:`, data.title || body);
+            console.error(`[Geocode] TomTom API ${res.statusCode}:`, data.message || body);
             resolve(null);
             return;
           }
 
-          if (data.items && data.items.length > 0) {
-            const item = data.items[0];
-            const address = item.address?.label || null;
+          if (data.addresses && data.addresses.length > 0) {
+            const item = data.addresses[0];
+            const address = item.address?.freeformAddress || null;
 
             if (address) {
               // Cache the result
@@ -132,10 +132,10 @@ async function reverseGeocode(latitude, longitude) {
 }
 
 /**
- * Check if HERE geocoding is configured.
+ * Check if TomTom geocoding is configured.
  */
 function isConfigured() {
-  return !!HERE_API_KEY;
+  return !!TOMTOM_API_KEY;
 }
 
 module.exports = { reverseGeocode, isConfigured };
