@@ -5,6 +5,7 @@
  */
 const db = require('../db');
 const { captureLocation, formatLocationLabel } = require('../services/geofence');
+const sheets = require('../services/sheets');
 
 function handleClockIn(body, authUser) {
   const { latitude, longitude, comment } = body;
@@ -82,6 +83,15 @@ function handleClockOut(body, authUser) {
   }
 
   const updatedEntry = db.update('clock_entries', openEntry.id, updates);
+
+  // Write to Google Sheets (async, non-blocking — don't fail clock-out if Sheets is down)
+  if (sheets.isConfigured()) {
+    const user = db.findOne('users', (u) => u.id === authUser.id);
+    const office = user ? db.findOne('offices', (o) => o.code === user.office_code) : null;
+    sheets.writeTimecardEntry(updatedEntry, user || authUser, office?.name || '').catch((err) => {
+      console.error('[Clock] Sheets write failed (non-fatal):', err.message);
+    });
+  }
 
   return {
     status: 200,

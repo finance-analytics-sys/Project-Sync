@@ -15,6 +15,7 @@
  */
 const db = require('../db');
 const email = require('./email');
+const sheets = require('./sheets');
 
 // ── Date helpers ──
 
@@ -237,6 +238,14 @@ async function approvePTO(requestId, approverId) {
       db.update('pto_requests', requestId, { status: 'approved' });
       const updatedRequest = db.findOne('pto_requests', (r) => r.id === requestId);
       await email.ptoApprovedEmail(updatedRequest, requester, approver, true);
+
+      // Write to Google Sheets: PTO tab + auto-generate PTO timecard entries
+      if (sheets.isConfigured()) {
+        const office = db.findOne('offices', (o) => o.code === requester.office_code);
+        sheets.writeApprovedPTO(updatedRequest, requester, office?.name).catch((e) => console.error('[PTO] Sheets PTO write failed:', e.message));
+        sheets.writePTOTimecardEntries(updatedRequest, requester, office?.name).catch((e) => console.error('[PTO] Sheets timecard write failed:', e.message));
+      }
+
       return { success: true, status: 'approved', request: updatedRequest };
     }
   }
@@ -263,6 +272,14 @@ async function approvePTO(requestId, approverId) {
 
     const updatedRequest = db.findOne('pto_requests', (r) => r.id === requestId);
     await email.ptoApprovedEmail(updatedRequest, requester, approver, true);
+
+    // Write to Google Sheets: PTO tab + auto-generate PTO timecard entries
+    if (sheets.isConfigured()) {
+      const office = db.findOne('offices', (o) => o.code === requester.office_code);
+      sheets.writeApprovedPTO(updatedRequest, requester, office?.name).catch((e) => console.error('[PTO] Sheets PTO write failed:', e.message));
+      sheets.writePTOTimecardEntries(updatedRequest, requester, office?.name).catch((e) => console.error('[PTO] Sheets timecard write failed:', e.message));
+    }
+
     return { success: true, status: 'approved', request: updatedRequest };
   }
 
