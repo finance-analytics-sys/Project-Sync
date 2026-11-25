@@ -155,13 +155,13 @@ async function handleRequest(req, res) {
         const user = requireAuth(req, res);
         if (!user) return;
         const body = await parseBody(req);
-        result = handleClockIn(body, user);
+        result = await handleClockIn(body, user);
       }
       else if (pathname === '/api/clock/out' && req.method === 'POST') {
         const user = requireAuth(req, res);
         if (!user) return;
         const body = await parseBody(req);
-        result = handleClockOut(body, user);
+        result = await handleClockOut(body, user);
       }
       else if (pathname === '/api/clock/status' && req.method === 'GET') {
         const user = requireAuth(req, res);

@@ -74,6 +74,8 @@ async function handleGetLogs(authUser, query) {
       office: office?.name || e.office_code || '—',
       office_code: e.office_code,
       clock_in_location: e.clock_in_location || '—',
+      clock_in_address: e.clock_in_address || '',
+      clock_out_address: e.clock_out_address || '',
       clock_in_time: e.clock_in || null,
       clock_out_time: e.clock_out || null,
       hours: hours,

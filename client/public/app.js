@@ -564,7 +564,14 @@
               ...histRes.data.entries.slice(0, 10).map((e) =>
                 h('tr', null,
                   h('td', null, formatDate(e.clock_in)),
-                  h('td', { style: 'font-size:0.8rem;' }, e.clock_in_location || '—'),
+                  h('td', { style: 'font-size:0.8rem;' },
+                    e.clock_in_address
+                      ? h('div', null,
+                          h('div', { style: 'font-weight:500;' }, e.clock_in_address),
+                          h('div', { style: 'font-size:0.75rem; color:var(--muted); margin-top:2px;' }, e.clock_in_location || '')
+                        )
+                      : (e.clock_in_location || '—')
+                  ),
                   h('td', null, formatTime(e.clock_in)),
                   h('td', null, e.clock_out ? formatTime(e.clock_out) : h('span', { className: 'badge badge-pending' }, 'Active')),
                   h('td', null, e.clock_out ? formatDuration(e.clock_in, e.clock_out) : '—'),
@@ -1454,7 +1461,14 @@
               h('tr', null,
                 h('td', null, e.name),
                 h('td', null, e.office),
-                h('td', { className: 'text-sm' }, e.clock_in_location),
+                h('td', { className: 'text-sm' },
+                  e.clock_in_address
+                    ? h('div', null,
+                        h('div', { style: 'font-weight:500;' }, e.clock_in_address),
+                        h('div', { style: 'font-size:0.75rem; color:var(--muted); margin-top:2px;' }, e.clock_in_location || '')
+                      )
+                    : (e.clock_in_location || '—')
+                ),
                 h('td', { className: 'text-sm' }, e.clock_in_time ? (e.clock_in_time.includes('T') ? formatTime(e.clock_in_time) : e.clock_in_time) : '—'),
                 h('td', { className: 'text-sm' }, e.clock_out_time ? (e.clock_out_time.includes('T') ? formatTime(e.clock_out_time) : e.clock_out_time) : '—'),
                 h('td', null, e.hours || '—'),

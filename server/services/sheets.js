@@ -5,7 +5,7 @@
  *
  * Spreadsheet ID: 1ftgE58jBqGoMgWa2jVniGXzEkkoBQHA7cR0n77Hqo_Q
  *
- * Timecard tab columns: Name | Office | Clock in Location | Clock in time | Clock out time | Hours | Job code | Comment
+ * Timecard tab columns: Name | Office | Clock in Location | Clock in time | Clock out time | Hours | Job code | Comment | Clock in Address | Clock out Address
  * PTO tab columns:      Name | Office | PTO Date | Hours requested | Reason
  *
  * PTO tab: ONE row per request. Date range in single cell (e.g., "Nov 26 – Nov 29").
@@ -234,7 +234,7 @@ function formatDateRangeForSheet(startDate, endDate) {
  * Called on CLOCK-IN: writes immediately with "Currently Clocked In" placeholder.
  * Called on CLOCK-OUT (legacy fallback): writes the full completed entry.
  *
- * Columns: Name | Office | Clock in Location | Clock in time | Clock out time | Hours | Job code | Comment
+ * Columns: Name | Office | Clock in Location | Clock in time | Clock out time | Hours | Job code | Comment | Clock in Address | Clock out Address
  */
 async function writeTimecardEntry(entry, user, officeName) {
   const hasClockOut = !!entry.clock_out;
@@ -251,6 +251,8 @@ async function writeTimecardEntry(entry, user, officeName) {
     hours,
     entry.job_code || 'Regular',
     entry.comment || '',
+    entry.clock_in_address || '',
+    hasClockOut ? (entry.clock_out_address || '') : '',
   ];
 
   return appendRows(TIMECARD_TAB, [row]);
@@ -290,13 +292,16 @@ async function updateTimecardClockOut(entry, user, officeName) {
 
   const hours = ((new Date(entry.clock_out) - new Date(entry.clock_in)) / 3600000).toFixed(2);
 
-  // Update columns E (clock out), F (hours), H (comment) on the target row
+  // Update clock-out columns on the target row
   const clockOutFormatted = formatDateTimeForSheet(entry.clock_out);
   const comment = entry.comment || '';
 
-  // Update E:H (clock out time, hours, job code, comment) in one call
-  return updateRange(TIMECARD_TAB, `E${targetRow}:H${targetRow}`, [
-    [clockOutFormatted, hours, entry.job_code || 'Regular', comment],
+  // Preserve existing clock-in address (column I) while updating E:J
+  const existingClockInAddress = rows[targetRow - 1]?.[8] || '';
+
+  // Update E:J (clock out time, hours, job code, comment, clock in address preserved, clock out address)
+  return updateRange(TIMECARD_TAB, `E${targetRow}:J${targetRow}`, [
+    [clockOutFormatted, hours, entry.job_code || 'Regular', comment, existingClockInAddress, entry.clock_out_address || ''],
   ]);
 }
 
@@ -417,6 +422,8 @@ async function readTimecardEntries(filters = {}) {
     const hours = r[5] || '';
     const jobCode = r[6] || 'Regular';
     const comment = r[7] || '';
+    const clockInAddress = r[8] || '';
+    const clockOutAddress = r[9] || '';
 
     // Parse clock-in date for filtering (format: "Nov 25, 2026, 2:29 PM")
     let clockInDate = '';
@@ -446,6 +453,8 @@ async function readTimecardEntries(filters = {}) {
       hours,
       job_code: jobCode,
       comment,
+      clock_in_address: clockInAddress,
+      clock_out_address: clockOutAddress,
       _row: i + 1,
     });
   }

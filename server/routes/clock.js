@@ -6,8 +6,9 @@
 const db = require('../db');
 const { captureLocation, formatLocationLabel } = require('../services/geofence');
 const sheets = require('../services/sheets');
+const geocode = require('../services/geocode');
 
-function handleClockIn(body, authUser) {
+async function handleClockIn(body, authUser) {
   const { latitude, longitude, comment } = body;
   if (latitude == null || longitude == null) {
     return { status: 400, body: { error: 'Location (latitude, longitude) is required' } };
@@ -16,6 +17,16 @@ function handleClockIn(body, authUser) {
   // Capture location metadata (no blocking)
   const locResult = captureLocation(authUser.office_code, latitude, longitude);
   const locationLabel = formatLocationLabel(authUser.office_code, latitude, longitude);
+
+  // Reverse geocode to get street address (non-blocking — if it fails, we still proceed)
+  let clockInAddress = null;
+  if (geocode.isConfigured()) {
+    try {
+      clockInAddress = await geocode.reverseGeocode(latitude, longitude);
+    } catch (err) {
+      console.error('[Clock] Geocode failed (non-fatal):', err.message);
+    }
+  }
 
   // Check if already clocked in (has an open entry with no clock_out)
   const openEntry = db.findOne('clock_entries', (e) =>
@@ -33,9 +44,11 @@ function handleClockIn(body, authUser) {
     clock_in_lat: latitude,
     clock_in_lng: longitude,
     clock_in_location: locationLabel,
+    clock_in_address: clockInAddress,
     clock_out_lat: null,
     clock_out_lng: null,
     clock_out_location: null,
+    clock_out_address: null,
     job_code: 'Regular',
     comment: comment && comment.trim() ? comment.trim() : null,
   });
@@ -53,13 +66,13 @@ function handleClockIn(body, authUser) {
     status: 200,
     body: {
       success: true,
-      message: `Clocked in — ${locationLabel}`,
+      message: `Clocked in — ${locationLabel}${clockInAddress ? ` (${clockInAddress})` : ''}`,
       entry,
     },
   };
 }
 
-function handleClockOut(body, authUser) {
+async function handleClockOut(body, authUser) {
   const { latitude, longitude, comment } = body;
   if (latitude == null || longitude == null) {
     return { status: 400, body: { error: 'Location (latitude, longitude) is required' } };
@@ -67,6 +80,16 @@ function handleClockOut(body, authUser) {
 
   // Capture location metadata (no blocking)
   const locationLabel = formatLocationLabel(authUser.office_code, latitude, longitude);
+
+  // Reverse geocode clock-out location
+  let clockOutAddress = null;
+  if (geocode.isConfigured()) {
+    try {
+      clockOutAddress = await geocode.reverseGeocode(latitude, longitude);
+    } catch (err) {
+      console.error('[Clock] Geocode clock-out failed (non-fatal):', err.message);
+    }
+  }
 
   // Find open clock entry
   const openEntry = db.findOne('clock_entries', (e) =>
@@ -82,6 +105,7 @@ function handleClockOut(body, authUser) {
     clock_out_lat: latitude,
     clock_out_lng: longitude,
     clock_out_location: locationLabel,
+    clock_out_address: clockOutAddress,
   };
 
   // If a clock-out comment is provided, append to existing comment
@@ -106,7 +130,7 @@ function handleClockOut(body, authUser) {
     status: 200,
     body: {
       success: true,
-      message: `Clocked out — ${locationLabel}`,
+      message: `Clocked out — ${locationLabel}${clockOutAddress ? ` (${clockOutAddress})` : ''}`,
       entry: updatedEntry,
     },
   };
@@ -192,6 +216,8 @@ async function handleGetAllEntries(authUser, query) {
           clock_in: clockIn,
           clock_out: clockOut,
           clock_in_location: se.clock_in_location,
+          clock_in_address: se.clock_in_address || '',
+          clock_out_address: se.clock_out_address || '',
           hours: se.hours,
           job_code: se.job_code,
           comment: se.comment,
