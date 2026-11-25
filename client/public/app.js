@@ -467,10 +467,11 @@
       const today = [new Date().getFullYear(), String(new Date().getMonth()+1).padStart(2,'0'), String(new Date().getDate()).padStart(2,'0')].join('-');
       const todayEntries = entries.data.entries.filter(e=>e.clock_in?.slice(0,10)===today);
       const active = new Set(todayEntries.filter(e=>!e.clock_out).map(e=>e.user_id));
+      const clockedToday = new Set(todayEntries.map(e=>e.user_id));
       const bars = h('div',{className:'office-bars'});
       [...new Set(people.map(u=>u.office_code).filter(Boolean))].sort().forEach(office=>{
         const officeUsers=people.filter(u=>u.office_code===office);
-        const count=officeUsers.filter(u=>active.has(u.id)).length;
+        const count=officeUsers.filter(u=>clockedToday.has(u.id)).length;
         const pct=officeUsers.length ? Math.round(count/officeUsers.length*100) : 0;
         bars.append(h('div',{className:'office-bar'},h('strong',null,`${pct}%`),h('div',{className:'bar-track'},h('div',{className:'bar-fill',style:`height:${pct}%`})),h('small',null,office)));
       });
