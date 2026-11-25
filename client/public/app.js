@@ -93,16 +93,16 @@
       onclick: (ev) => { if (ev.target === overlay) overlay.remove(); },
     },
       h('div', {
-        style: 'background:var(--surface); border-radius:12px; padding:1.5rem; max-width:480px; width:90%; max-height:70vh; overflow-y:auto; box-shadow:0 8px 32px rgba(0,0,0,0.25);',
+        style: 'background:#ffffff; border-radius:12px; padding:1.5rem; max-width:480px; width:90%; max-height:70vh; overflow-y:auto; box-shadow:0 8px 32px rgba(0,0,0,0.3); border:1px solid #e0e0e0;',
       },
         h('div', { style: 'display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;' },
-          h('h3', { style: 'margin:0; font-size:1rem; color:var(--text);' }, `Comment — ${employeeName}`),
+          h('h3', { style: 'margin:0; font-size:1rem; color:#1a1a1a;' }, `Comment — ${employeeName}`),
           h('button', {
-            style: 'background:none; border:none; font-size:1.3rem; cursor:pointer; color:var(--text-secondary); padding:0 0.25rem;',
+            style: 'background:none; border:none; font-size:1.3rem; cursor:pointer; color:#666; padding:0 0.25rem;',
             onclick: () => overlay.remove(),
           }, '✕'),
         ),
-        h('p', { style: 'margin:0; color:var(--text); font-size:0.9rem; line-height:1.6; white-space:pre-wrap; word-break:break-word;' }, comment),
+        h('p', { style: 'margin:0; color:#333; font-size:0.9rem; line-height:1.6; white-space:pre-wrap; word-break:break-word;' }, comment),
       ),
     );
     document.body.appendChild(overlay);
