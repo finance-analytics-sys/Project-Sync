@@ -82,6 +82,32 @@
     return `${hrs}h ${mins}m`;
   }
 
+  function showCommentModal(comment, employeeName) {
+    // Remove any existing modal
+    const existing = document.getElementById('comment-modal-overlay');
+    if (existing) existing.remove();
+
+    const overlay = h('div', {
+      id: 'comment-modal-overlay',
+      style: 'position:fixed; inset:0; background:rgba(0,0,0,0.5); display:flex; align-items:center; justify-content:center; z-index:9999;',
+      onclick: (ev) => { if (ev.target === overlay) overlay.remove(); },
+    },
+      h('div', {
+        style: 'background:var(--surface); border-radius:12px; padding:1.5rem; max-width:480px; width:90%; max-height:70vh; overflow-y:auto; box-shadow:0 8px 32px rgba(0,0,0,0.25);',
+      },
+        h('div', { style: 'display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem;' },
+          h('h3', { style: 'margin:0; font-size:1rem; color:var(--text);' }, `Comment — ${employeeName}`),
+          h('button', {
+            style: 'background:none; border:none; font-size:1.3rem; cursor:pointer; color:var(--text-secondary); padding:0 0.25rem;',
+            onclick: () => overlay.remove(),
+          }, '✕'),
+        ),
+        h('p', { style: 'margin:0; color:var(--text); font-size:0.9rem; line-height:1.6; white-space:pre-wrap; word-break:break-word;' }, comment),
+      ),
+    );
+    document.body.appendChild(overlay);
+  }
+
   function statusBadge(status) {
     const cls = {
       pending: 'badge-pending', approved: 'badge-approved',
@@ -542,7 +568,15 @@
                   h('td', null, e.clock_out ? formatTime(e.clock_out) : h('span', { className: 'badge badge-pending' }, 'Active')),
                   h('td', null, e.clock_out ? formatDuration(e.clock_in, e.clock_out) : '—'),
                   h('td', null, h('span', { className: `badge ${e.job_code === 'PTO' ? 'badge-approved' : e.job_code === 'Holiday' ? 'badge-pending' : ''}`, style: 'font-size:0.75rem;' }, e.job_code || 'Regular')),
-                  h('td', { style: 'font-size:0.8rem; max-width:150px; overflow:hidden; text-overflow:ellipsis;' }, e.comment || '—'),
+                  h('td', { style: 'font-size:0.8rem;' },
+                    e.comment
+                      ? h('button', {
+                          className: 'btn btn-sm',
+                          style: 'padding:0.2rem 0.6rem; font-size:0.75rem; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--primary); cursor:pointer;',
+                          onclick: () => showCommentModal(e.comment, `${state.user.first_name} ${state.user.last_name}`),
+                        }, 'View')
+                      : '—'
+                  ),
                 ),
               ),
             ),
@@ -1415,7 +1449,15 @@
                     className: 'badge ' + (e.job_code === 'PTO' ? 'badge-info' : e.job_code === 'Holiday' ? 'badge-holiday' : 'badge-default'),
                   }, e.job_code),
                 ),
-                h('td', { className: 'text-sm text-muted', style: 'max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' }, e.comment || '—'),
+                h('td', { className: 'text-sm text-muted' },
+                  e.comment
+                    ? h('button', {
+                        className: 'btn btn-sm',
+                        style: 'padding:0.2rem 0.6rem; font-size:0.75rem; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--primary); cursor:pointer;',
+                        onclick: () => showCommentModal(e.comment, e.name),
+                      }, 'View')
+                    : '—'
+                ),
               ),
             ),
           ),
