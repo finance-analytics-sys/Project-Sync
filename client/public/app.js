@@ -361,7 +361,11 @@
     tick(); clockInterval = setInterval(tick, 1000);
     const status = h('div', { className: 'location-strip' }, 'Checking attendance status…');
     const action = h('button', { className: 'sync-action clock-home-button', disabled: 'true' }, 'Loading…');
-    attendance.append(time, date, action, status);
+    const homeComment = h('div', { className: 'comment-wrap', style: 'margin: 0.75rem 0; width: 100%; max-width: 400px;' },
+      h('label', { style: 'font-size:0.8rem; color:var(--text-secondary); margin-bottom:4px; display:block;' }, 'Comment (optional)'),
+      h('input', { type: 'text', id: 'home-clock-comment', placeholder: 'e.g. Working from satellite office', maxLength: '200', style: 'width:100%; padding:0.5rem 0.75rem; border:2px solid var(--border); border-radius:8px; font-size:0.9rem; background:var(--surface); color:var(--text);' }),
+    );
+    attendance.append(time, date, homeComment, action, status);
     const balance = syncCard('▦  My PTO Balance', null, 'balance-card');
     balance.append(h('div', { className: 'hero-balance' }, '—'), h('div', { className: 'balance-caption' }, 'Balance not available from current API'), syncAction('View My PTO', 'my-pto'));
     const upcoming = syncCard('▦  Upcoming Time Off', null, 'upcoming-card');
@@ -380,6 +384,10 @@
         action.disabled = true; action.textContent = 'Checking location…';
         try {
           const location = await getLocation();
+          const homeCommentInput = $('#home-clock-comment');
+          if (homeCommentInput && homeCommentInput.value.trim()) {
+            location.comment = homeCommentInput.value.trim();
+          }
           const result = await api('POST', clockStatus.clocked_in ? '/clock/out' : '/clock/in', location);
           if (!result?.ok) throw new Error(result?.data?.error || 'Clock action failed');
           switchTab('home');
@@ -472,7 +480,7 @@
     // Comment field (optional)
     const commentWrap = h('div', { className: 'comment-wrap', style: 'margin: 1rem 0; width: 100%; max-width: 400px;' },
       h('label', { style: 'display:block; font-size:0.85rem; color:var(--muted); margin-bottom:0.3rem;' }, 'Comment (optional)'),
-      h('input', { type: 'text', id: 'clock-comment', placeholder: 'e.g. Working from satellite office', maxLength: '200', style: 'width:100%; padding:0.5rem 0.75rem; border:1px solid var(--border); border-radius:8px; font-size:0.9rem;' }),
+      h('input', { type: 'text', id: 'clock-comment', placeholder: 'e.g. Working from satellite office', maxLength: '200', style: 'width:100%; padding:0.5rem 0.75rem; border:2px solid var(--border); border-radius:8px; font-size:0.9rem; background:var(--surface); color:var(--text);' }),
     );
 
     // Button
