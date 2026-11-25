@@ -373,7 +373,7 @@
       clockStatus = clock.data;
       action.disabled = false;
       action.textContent = clockStatus.clocked_in ? '↪  Clock Out' : '⇥  Clock In';
-      status.textContent = clockStatus.clocked_in ? `● Clocked in since ${formatTime(clockStatus.current_entry?.clock_in)}` : `${currentUser.office_code || 'Assigned office'} · Location verified at clock-in (200 m geofence)`;
+      status.textContent = clockStatus.clocked_in ? `● Clocked in since ${formatTime(clockStatus.current_entry?.clock_in)}` : `${currentUser.office_code || 'Assigned office'} · GPS location captured at clock-in`;
       action.onclick = async () => {
         action.disabled = true; action.textContent = 'Checking location…';
         try {
@@ -467,6 +467,12 @@
       className: `status-badge ${clockStatus.clocked_in ? 'status-clocked-in' : 'status-clocked-out'}`,
     }, clockStatus.clocked_in ? `Clocked in since ${formatTime(clockStatus.current_entry?.clock_in)}` : 'Not clocked in');
 
+    // Comment field (optional)
+    const commentWrap = h('div', { className: 'comment-wrap', style: 'margin: 1rem 0; width: 100%; max-width: 400px;' },
+      h('label', { style: 'display:block; font-size:0.85rem; color:var(--muted); margin-bottom:0.3rem;' }, 'Comment (optional)'),
+      h('input', { type: 'text', id: 'clock-comment', placeholder: 'e.g. Working from satellite office', maxLength: '200', style: 'width:100%; padding:0.5rem 0.75rem; border:1px solid var(--border); border-radius:8px; font-size:0.9rem;' }),
+    );
+
     // Button
     const msgEl = h('div', { id: 'clock-msg', className: 'mt-4' });
     const btnEl = h('button', {
@@ -478,6 +484,10 @@
 
         try {
           const loc = await getLocation();
+          const commentInput = $('#clock-comment');
+          if (commentInput && commentInput.value.trim()) {
+            loc.comment = commentInput.value.trim();
+          }
           const endpoint = clockStatus.clocked_in ? '/clock/out' : '/clock/in';
           const result = await api('POST', endpoint, loc);
 
@@ -498,7 +508,7 @@
       },
     }, clockStatus.clocked_in ? 'Clock Out' : 'Clock In');
 
-    card.append(timeEl, dateEl, statusEl, btnEl, msgEl);
+    card.append(timeEl, dateEl, statusEl, commentWrap, btnEl, msgEl);
     container.appendChild(card);
 
     // Recent history
@@ -510,16 +520,19 @@
           h('table', null,
             h('thead', null,
               h('tr', null,
-                h('th', null, 'Date'), h('th', null, 'Clock In'), h('th', null, 'Clock Out'), h('th', null, 'Duration'),
+                h('th', null, 'Date'), h('th', null, 'Location'), h('th', null, 'Clock In'), h('th', null, 'Clock Out'), h('th', null, 'Hours'), h('th', null, 'Job Code'), h('th', null, 'Comment'),
               ),
             ),
             h('tbody', null,
               ...histRes.data.entries.slice(0, 10).map((e) =>
                 h('tr', null,
                   h('td', null, formatDate(e.clock_in)),
+                  h('td', { style: 'font-size:0.8rem;' }, e.clock_in_location || '—'),
                   h('td', null, formatTime(e.clock_in)),
                   h('td', null, e.clock_out ? formatTime(e.clock_out) : h('span', { className: 'badge badge-pending' }, 'Active')),
                   h('td', null, e.clock_out ? formatDuration(e.clock_in, e.clock_out) : '—'),
+                  h('td', null, h('span', { className: `badge ${e.job_code === 'PTO' ? 'badge-approved' : e.job_code === 'Holiday' ? 'badge-pending' : ''}`, style: 'font-size:0.75rem;' }, e.job_code || 'Regular')),
+                  h('td', { style: 'font-size:0.8rem; max-width:150px; overflow:hidden; text-overflow:ellipsis;' }, e.comment || '—'),
                 ),
               ),
             ),
