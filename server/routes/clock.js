@@ -136,22 +136,88 @@ function handleGetHistory(authUser, query) {
 }
 
 // Admin: get all clock entries (for managers/executives)
-function handleGetAllEntries(authUser, query) {
-  let entries;
-
-  if (authUser.level <= 1) {
-    // Executives see all
-    entries = db.findAll('clock_entries');
-  } else if (authUser.level === 2) {
-    // Managers see their office only
-    const officeUsers = db.findAll('users', (u) => u.office_code === authUser.office_code);
-    const userIds = new Set(officeUsers.map((u) => u.id));
-    entries = db.findAll('clock_entries', (e) => userIds.has(e.user_id));
-  } else {
+// Reads from Google Sheets first (persistent), falls back to local DB.
+async function handleGetAllEntries(authUser, query) {
+  if (authUser.level > 2) {
     return { status: 403, body: { error: 'Insufficient permissions' } };
   }
 
-  // Enrich with user names and office info
+  // Build a name→user lookup for mapping Sheets names back to user IDs
+  const allUsers = db.findAll('users');
+  const nameToUser = {};
+  allUsers.forEach((u) => {
+    const fullName = `${u.first_name} ${u.last_name}`.toLowerCase();
+    nameToUser[fullName] = u;
+  });
+
+  // Office code→name and name→code maps
+  const allOffices = db.findAll('offices');
+  const codeToName = {};
+  const nameToCode = {};
+  allOffices.forEach((o) => { codeToName[o.code] = o.name; nameToCode[o.name.toLowerCase()] = o.code; });
+
+  // Try Google Sheets first
+  if (sheets.isConfigured()) {
+    try {
+      const sheetEntries = await sheets.readTimecardEntries({});
+
+      let entries = sheetEntries.map((se) => {
+        // Try to map name back to a user for user_id and office_code
+        const matchedUser = nameToUser[se.name.toLowerCase()] || null;
+
+        // Parse formatted dates into ISO for frontend date-slicing
+        let clockIn = null;
+        let clockOut = null;
+        try { if (se.clock_in_time) clockIn = new Date(se.clock_in_time).toISOString(); } catch (e) {}
+        try { if (se.clock_out_time) clockOut = new Date(se.clock_out_time).toISOString(); } catch (e) {}
+
+        const officeCode = matchedUser?.office_code || nameToCode[se.office.toLowerCase()] || '';
+
+        return {
+          id: se.id,
+          user_id: matchedUser?.id || se.name,
+          user_name: se.name,
+          user_email: matchedUser?.email || '',
+          office_code: officeCode,
+          office_name: se.office,
+          clock_in: clockIn,
+          clock_out: clockOut,
+          clock_in_location: se.clock_in_location,
+          hours: se.hours,
+          job_code: se.job_code,
+          comment: se.comment,
+        };
+      });
+
+      // Manager filter: only their office
+      if (authUser.level === 2) {
+        const myOffice = authUser.office_code;
+        entries = entries.filter((e) => e.office_code === myOffice);
+      }
+
+      // Apply query filters
+      if (query.date) entries = entries.filter((e) => e.clock_in?.startsWith(query.date));
+      if (query.office) entries = entries.filter((e) => e.office_code === query.office);
+      if (query.user_id) entries = entries.filter((e) => e.user_id === query.user_id);
+
+      entries.sort((a, b) => new Date(b.clock_in || 0) - new Date(a.clock_in || 0));
+
+      return { status: 200, body: { entries: entries.slice(0, 500), source: 'sheets' } };
+    } catch (err) {
+      console.error('[Clock/All] Sheets read failed, falling back to DB:', err.message);
+    }
+  }
+
+  // Fallback: local JSON DB
+  let entries;
+  if (authUser.level <= 1) {
+    entries = db.findAll('clock_entries');
+  } else {
+    const officeUsers = db.findAll('users', (u) => u.office_code === authUser.office_code);
+    const userIds = new Set(officeUsers.map((u) => u.id));
+    entries = db.findAll('clock_entries', (e) => userIds.has(e.user_id));
+  }
+
   entries = entries.map((e) => {
     const user = db.findOne('users', (u) => u.id === e.user_id);
     const office = user ? db.findOne('offices', (o) => o.code === user.office_code) : null;
@@ -164,22 +230,11 @@ function handleGetAllEntries(authUser, query) {
   });
 
   entries.sort((a, b) => new Date(b.clock_in) - new Date(a.clock_in));
+  if (query.date) entries = entries.filter((e) => e.clock_in.startsWith(query.date));
+  if (query.office) entries = entries.filter((e) => e.office_code === query.office);
+  if (query.user_id) entries = entries.filter((e) => e.user_id === query.user_id);
 
-  if (query.date) {
-    entries = entries.filter((e) => e.clock_in.startsWith(query.date));
-  }
-
-  // Filter by office
-  if (query.office) {
-    entries = entries.filter((e) => e.office_code === query.office);
-  }
-
-  // Filter by user
-  if (query.user_id) {
-    entries = entries.filter((e) => e.user_id === query.user_id);
-  }
-
-  return { status: 200, body: { entries: entries.slice(0, 500) } };
+  return { status: 200, body: { entries: entries.slice(0, 500), source: 'db' } };
 }
 
 module.exports = { handleClockIn, handleClockOut, handleGetStatus, handleGetHistory, handleGetAllEntries };
