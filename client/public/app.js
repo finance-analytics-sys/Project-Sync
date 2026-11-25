@@ -246,7 +246,7 @@
       ...(canApprove ? [['approvals','☷',currentUser.level === 1 ? 'PTO Approvals' : 'Approvals']] : []),
       ...(currentUser.level === 1 ? [['reports','▥','Attendance']] : []),
       ...(currentUser.level !== 1 && canApprove ? [['reports','▥','Reports']] : []),
-      
+      ...(currentUser.level <= 1 ? [['logs','⊞','Logs']] : []),
       ['calendar','▦','PTO Calendar'],
     ];
     const shell = h('div', { className: 'sync-shell' });
@@ -317,13 +317,14 @@
   function switchTab(tabId) {
     if (clockInterval) { clearInterval(clockInterval); clockInterval = null; }
     if (tabId === 'approvals' && currentUser.level > 2 || tabId === 'reports' && currentUser.level > 2) tabId = 'home';
+    if (tabId === 'logs' && currentUser.level > 1) tabId = 'home';
     activeTab = tabId;
     $$('.sync-nav-item').forEach((t) => t.classList.toggle('active', t.id === `tab-${tabId}`));
     const content = $('#tab-content');
     if (!content) return;
     content.innerHTML = '';
     const heading = $('#welcome-heading');
-    if (heading) heading.textContent = tabId === 'home' ? `Welcome back, ${currentUser.first_name}!` : ({ clock:'Your Attendance',pto:'Request Time Off','my-pto':'My PTO',approvals:'PTO Approvals',reports:'Reports',calendar:'PTO Calendar' }[tabId] || 'Project Sync');
+    if (heading) heading.textContent = tabId === 'home' ? `Welcome back, ${currentUser.first_name}!` : ({ clock:'Your Attendance',pto:'Request Time Off','my-pto':'My PTO',approvals:'PTO Approvals',reports:'Reports',calendar:'PTO Calendar',logs:'Timecard Logs' }[tabId] || 'Project Sync');
     switch (tabId) {
       case 'home': renderHome(content); break;
       case 'clock': renderClockTab(content); break;
@@ -332,6 +333,7 @@
       case 'approvals': renderApprovalsTab(content); break;
       case 'reports': renderReportsTab(content); break;
       case 'calendar': renderReportsTab(content); break;
+      case 'logs': renderLogsTab(content); break;
     }
   }
 
@@ -841,6 +843,74 @@
     }
 
     container.appendChild(card);
+
+    // Executive PTO Cancellation — L1 executives can cancel any approved PTO
+    if (currentUser.level <= 1) {
+      const cancelCard = h('div', { className: 'card', style: 'margin-top:16px;' },
+        h('h2', null, 'Approved PTO — Executive Actions'),
+        h('p', { className: 'text-sm text-muted', style: 'margin-bottom:12px;' }, 'Cancel any approved PTO request if circumstances require it.'),
+      );
+
+      const approvedRes = await api('GET', '/pto/all-approved');
+      if (approvedRes?.ok && approvedRes.data.requests.length > 0) {
+        approvedRes.data.requests.forEach((r) => {
+          const dateRange = r.start_date === r.end_date
+            ? formatDate(r.start_date + 'T00:00:00')
+            : `${formatDate(r.start_date + 'T00:00:00')} – ${formatDate(r.end_date + 'T00:00:00')}`;
+
+          const item = h('div', { style: 'border:1px solid var(--gray-200); border-radius:var(--radius); padding:16px; margin-bottom:12px;' },
+            h('div', { className: 'flex-between' },
+              h('div', null,
+                h('strong', null, r.requester_name),
+                h('span', { className: 'text-sm text-muted', style: 'margin-left:8px' }, r.requester_office || ''),
+              ),
+              h('div', { style: 'text-align:right' },
+                h('span', { className: 'text-sm text-muted' }, dateRange),
+                r.pto_hours ? h('div', { className: 'text-sm', style: 'color:var(--primary-600,#4f46e5);font-weight:500;' }, `${r.pto_hours}h (${r.pto_days} day${r.pto_days !== 1 ? 's' : ''})`) : null,
+              ),
+            ),
+            r.reason ? h('p', { className: 'text-sm mt-2' }, r.reason) : null,
+            h('div', { className: 'flex-between', style: 'margin-top:12px;' },
+              statusBadge('approved'),
+              h('button', {
+                className: 'btn btn-danger btn-sm',
+                onClick: async (e) => {
+                  const comment = prompt('Reason for cancelling this approved PTO (optional):');
+                  if (comment === null) return; // cancelled prompt
+                  const btn = e.currentTarget;
+                  btn.disabled = true;
+                  btn.innerHTML = '<span class="btn-spinner"></span> Cancelling…';
+                  try {
+                    const result = await api('POST', '/pto/executive-cancel', {
+                      request_id: r.id,
+                      cancel_comment: comment || '',
+                    });
+                    if (result && result.ok) {
+                      btn.innerHTML = '✗ Cancelled';
+                      btn.className = 'btn btn-danger btn-sm btn-done';
+                      setTimeout(() => switchTab('approvals'), 800);
+                    } else {
+                      btn.disabled = false;
+                      btn.textContent = 'Cancel PTO';
+                      alert(result?.data?.error || 'Failed to cancel');
+                    }
+                  } catch (err) {
+                    btn.disabled = false;
+                    btn.textContent = 'Cancel PTO';
+                    alert('Network error — please try again');
+                  }
+                },
+              }, 'Cancel PTO'),
+            ),
+          );
+          cancelCard.appendChild(item);
+        });
+      } else {
+        cancelCard.appendChild(h('p', { className: 'text-muted' }, 'No approved PTO requests.'));
+      }
+
+      container.appendChild(cancelCard);
+    }
   }
 
   // ── Reports / Calendar Tab ──
@@ -1097,6 +1167,163 @@
         container.appendChild(listCard);
       }
     }
+  }
+
+  // ── Logs Tab (Executive Only) ──
+  let logsFilters = { start_date: '', end_date: '', office: 'all', user_id: 'all', job_code: 'all' };
+
+  async function renderLogsTab(container) {
+    // Build filter bar
+    const filterBar = h('div', { className: 'card', style: 'margin-bottom:16px;' },
+      h('h2', null, 'Timecard Logs'),
+      h('p', { className: 'text-sm text-muted', style: 'margin-bottom:12px;' }, 'View all employee timecards across offices. Columns match the Timecard spreadsheet.'),
+    );
+
+    // Fetch offices and users for filter dropdowns
+    const [officeRes, userRes] = await Promise.all([api('GET', '/admin/offices'), api('GET', '/admin/users')]);
+    const offices = officeRes?.ok ? officeRes.data.offices : [];
+    const allUsers = userRes?.ok ? userRes.data.users : [];
+
+    const filterRow = h('div', { style: 'display:flex; gap:12px; flex-wrap:wrap; align-items:flex-end;' });
+
+    // Date range filters
+    const startInput = h('input', {
+      type: 'date', value: logsFilters.start_date,
+      style: 'padding:6px 10px; border:1px solid var(--gray-300); border-radius:var(--radius); font-size:14px;',
+      onInput: (e) => { logsFilters.start_date = e.target.value; },
+    });
+    const endInput = h('input', {
+      type: 'date', value: logsFilters.end_date,
+      style: 'padding:6px 10px; border:1px solid var(--gray-300); border-radius:var(--radius); font-size:14px;',
+      onInput: (e) => { logsFilters.end_date = e.target.value; },
+    });
+
+    // Office dropdown
+    const officeSelect = h('select', {
+      style: 'padding:6px 10px; border:1px solid var(--gray-300); border-radius:var(--radius); font-size:14px;',
+      onInput: (e) => { logsFilters.office = e.target.value; },
+    });
+    officeSelect.appendChild(h('option', { value: 'all' }, 'All Offices'));
+    offices.forEach((o) => {
+      officeSelect.appendChild(h('option', { value: o.code, ...(logsFilters.office === o.code ? { selected: 'true' } : {}) }, `${o.name} (${o.code})`));
+    });
+
+    // Employee dropdown
+    const userSelect = h('select', {
+      style: 'padding:6px 10px; border:1px solid var(--gray-300); border-radius:var(--radius); font-size:14px;',
+      onInput: (e) => { logsFilters.user_id = e.target.value; },
+    });
+    userSelect.appendChild(h('option', { value: 'all' }, 'All Employees'));
+    allUsers.sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`)).forEach((u) => {
+      userSelect.appendChild(h('option', { value: u.id, ...(logsFilters.user_id === u.id ? { selected: 'true' } : {}) }, `${u.first_name} ${u.last_name}`));
+    });
+
+    // Job Code dropdown
+    const jobCodeSelect = h('select', {
+      style: 'padding:6px 10px; border:1px solid var(--gray-300); border-radius:var(--radius); font-size:14px;',
+      onInput: (e) => { logsFilters.job_code = e.target.value; },
+    });
+    jobCodeSelect.appendChild(h('option', { value: 'all' }, 'All Job Codes'));
+    ['Regular', 'PTO', 'Holiday'].forEach((jc) => {
+      jobCodeSelect.appendChild(h('option', { value: jc, ...(logsFilters.job_code === jc ? { selected: 'true' } : {}) }, jc));
+    });
+
+    // Apply button
+    const applyBtn = h('button', {
+      className: 'btn btn-primary btn-sm',
+      onClick: () => { switchTab('logs'); },
+    }, 'Apply Filters');
+
+    // Clear button
+    const clearBtn = h('button', {
+      className: 'btn btn-outline btn-sm',
+      onClick: () => {
+        logsFilters = { start_date: '', end_date: '', office: 'all', user_id: 'all', job_code: 'all' };
+        switchTab('logs');
+      },
+    }, 'Clear');
+
+    filterRow.append(
+      h('div', { className: 'form-group', style: 'margin-bottom:0;' }, h('label', { style: 'font-size:12px;' }, 'Start Date'), startInput),
+      h('div', { className: 'form-group', style: 'margin-bottom:0;' }, h('label', { style: 'font-size:12px;' }, 'End Date'), endInput),
+      h('div', { className: 'form-group', style: 'margin-bottom:0;' }, h('label', { style: 'font-size:12px;' }, 'Office'), officeSelect),
+      h('div', { className: 'form-group', style: 'margin-bottom:0;' }, h('label', { style: 'font-size:12px;' }, 'Employee'), userSelect),
+      h('div', { className: 'form-group', style: 'margin-bottom:0;' }, h('label', { style: 'font-size:12px;' }, 'Job Code'), jobCodeSelect),
+      h('div', { style: 'display:flex; gap:8px; padding-bottom:2px;' }, applyBtn, clearBtn),
+    );
+
+    filterBar.appendChild(filterRow);
+    container.appendChild(filterBar);
+
+    // Fetch logs
+    const params = new URLSearchParams();
+    if (logsFilters.start_date) params.set('start_date', logsFilters.start_date);
+    if (logsFilters.end_date) params.set('end_date', logsFilters.end_date);
+    if (logsFilters.office !== 'all') params.set('office', logsFilters.office);
+    if (logsFilters.user_id !== 'all') params.set('user_id', logsFilters.user_id);
+    if (logsFilters.job_code !== 'all') params.set('job_code', logsFilters.job_code);
+
+    const qs = params.toString();
+    const res = await api('GET', `/logs${qs ? '?' + qs : ''}`);
+    if (!res || !res.ok) {
+      container.appendChild(h('div', { className: 'card' }, h('p', { className: 'text-muted' }, 'Failed to load timecard logs.')));
+      return;
+    }
+
+    const { entries, total } = res.data;
+
+    // Results card
+    const resultsCard = h('div', { className: 'card' });
+
+    const countLabel = entries.length < total
+      ? `Showing ${entries.length} of ${total} entries`
+      : `${total} ${total === 1 ? 'entry' : 'entries'}`;
+    resultsCard.appendChild(h('div', { className: 'flex-between', style: 'margin-bottom:12px;' },
+      h('span', { className: 'text-sm text-muted' }, countLabel),
+    ));
+
+    if (entries.length === 0) {
+      resultsCard.appendChild(h('p', { className: 'text-muted' }, 'No timecard entries found for the selected filters.'));
+    } else {
+      // Table with exact Timecard spreadsheet columns
+      const table = h('div', { className: 'table-wrap' },
+        h('table', null,
+          h('thead', null,
+            h('tr', null,
+              h('th', null, 'Name'),
+              h('th', null, 'Office'),
+              h('th', null, 'Clock in Location'),
+              h('th', null, 'Clock in time'),
+              h('th', null, 'Clock out time'),
+              h('th', null, 'Hours'),
+              h('th', null, 'Job Code'),
+              h('th', null, 'Comment'),
+            ),
+          ),
+          h('tbody', null,
+            ...entries.map((e) =>
+              h('tr', null,
+                h('td', null, e.name),
+                h('td', null, e.office),
+                h('td', { className: 'text-sm' }, e.clock_in_location),
+                h('td', { className: 'text-sm' }, e.clock_in_time ? formatTime(e.clock_in_time) : '—'),
+                h('td', { className: 'text-sm' }, e.clock_out_time ? formatTime(e.clock_out_time) : '—'),
+                h('td', null, e.hours || '—'),
+                h('td', null,
+                  h('span', {
+                    className: 'badge ' + (e.job_code === 'PTO' ? 'badge-info' : e.job_code === 'Holiday' ? 'badge-holiday' : 'badge-default'),
+                  }, e.job_code),
+                ),
+                h('td', { className: 'text-sm text-muted', style: 'max-width:200px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;' }, e.comment || '—'),
+              ),
+            ),
+          ),
+        ),
+      );
+      resultsCard.appendChild(table);
+    }
+
+    container.appendChild(resultsCard);
   }
 
   // ── Auth ──
