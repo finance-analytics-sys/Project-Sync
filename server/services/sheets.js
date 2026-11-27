@@ -501,6 +501,53 @@ async function readPTOEntries() {
 }
 
 /**
+ * Get clock status for a specific employee from Google Sheets.
+ * Looks for the most recent row with "Currently Clocked In" in the clock-out column.
+ * Returns { clocked_in: true/false, entry: { ... } | null }
+ */
+async function getClockStatusFromSheets(fullName) {
+  const rows = await readRows(TIMECARD_TAB);
+  if (rows.length <= 1) return { clocked_in: false, entry: null };
+
+  // Scan from bottom (most recent) for a matching name with "Currently Clocked In"
+  for (let i = rows.length - 1; i >= 1; i--) {
+    const r = rows[i];
+    if (!r || !r.length) continue;
+
+    const name = r[0] || '';
+    if (name.toLowerCase() !== fullName.toLowerCase()) continue;
+
+    const clockOutTime = r[4] || '';
+    if (clockOutTime === 'Currently Clocked In') {
+      return {
+        clocked_in: true,
+        entry: {
+          id: `sheet-row-${i + 1}`,
+          name,
+          office: r[1] || '',
+          clock_in_location: r[2] || '',
+          clock_in: r[3] || '',
+          clock_out: null,
+          break_length: r[5] || '',
+          hours: r[6] || '',
+          week_total: r[7] || '',
+          job_code: r[8] || 'Regular',
+          comment: r[9] || '',
+          clock_in_address: r[10] || '',
+          clock_out_address: '',
+          _sheet_row: i + 1,
+        },
+      };
+    }
+
+    // If the most recent entry for this employee has a clock-out time, they're not clocked in
+    return { clocked_in: false, entry: null };
+  }
+
+  return { clocked_in: false, entry: null };
+}
+
+/**
  * Check if Sheets integration is configured and ready.
  */
 function isConfigured() {
@@ -515,6 +562,7 @@ module.exports = {
   writeHolidayTimecardEntries,
   readTimecardEntries,
   readPTOEntries,
+  getClockStatusFromSheets,
   isConfigured,
   // Exposed for testing
   getAccessToken,
