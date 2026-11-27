@@ -206,6 +206,75 @@ async function appendRows(tab, rows) {
 
 const TIMEZONE = process.env.APP_TIMEZONE || 'America/New_York';
 
+/**
+ * Parse a formatted date string from Google Sheets back into an ISO string.
+ * Sheets stores dates formatted by formatDateTimeForSheet() as locale strings
+ * WITHOUT a timezone marker (e.g. "Nov 27, 2026, 1:11 PM").
+ * On a UTC server (like Render), new Date() would interpret this as UTC,
+ * causing a 5-hour shift. This helper treats the string as being in the app's
+ * TIMEZONE regardless of the server's system timezone.
+ *
+ * Strategy: extract the date/time components manually, construct a UTC timestamp
+ * for those components, then use Intl to find the TIMEZONE's UTC offset at that
+ * moment, and apply the correction. This avoids relying on new Date() locale
+ * parsing which is system-TZ dependent.
+ */
+function parseSheetDateTime(dateStr) {
+  if (!dateStr) return null;
+  try {
+    // Parse "Nov 27, 2026, 1:11 PM" or similar en-US formatted strings
+    // Pattern: Month Day, Year, Hour:Minute AM/PM
+    const m = dateStr.match(
+      /^(\w+)\s+(\d{1,2}),?\s+(\d{4}),?\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i
+    );
+    if (!m) {
+      // Fallback: try native parse (already ISO or other parseable format)
+      const d = new Date(dateStr);
+      return isNaN(d.getTime()) ? null : d.toISOString();
+    }
+
+    const monthNames = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+                         jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
+    const mon = monthNames[m[1].toLowerCase().slice(0, 3)];
+    if (mon === undefined) return null;
+
+    const day = +m[2];
+    const year = +m[3];
+    let hour = +m[4];
+    const min = +m[5];
+    const ampm = m[6].toUpperCase();
+    if (ampm === 'PM' && hour < 12) hour += 12;
+    if (ampm === 'AM' && hour === 12) hour = 0;
+
+    // Create a provisional UTC timestamp for these wall-clock values
+    const provisionalUtc = Date.UTC(year, mon, day, hour, min, 0);
+
+    // Find the TIMEZONE's offset at this provisional moment by comparing
+    // what the same UTC instant looks like in TIMEZONE vs UTC
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: TIMEZONE,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    });
+    const parts = {};
+    fmt.formatToParts(new Date(provisionalUtc)).forEach(({ type, value }) => {
+      parts[type] = value;
+    });
+    const tzRendered = Date.UTC(
+      +parts.year, +parts.month - 1, +parts.day,
+      +(parts.hour === '24' ? '0' : parts.hour), +parts.minute, +parts.second
+    );
+    // offsetMs = how far TIMEZONE is behind UTC (positive = behind, e.g. +5h for EST)
+    const offsetMs = provisionalUtc - tzRendered;
+
+    // The wall-clock values ARE in TIMEZONE, so the real UTC = wall-clock + offset
+    const correctedUtc = provisionalUtc + offsetMs;
+    return new Date(correctedUtc).toISOString();
+  } catch (e) {
+    return null;
+  }
+}
+
 function formatDateTimeForSheet(isoString) {
   if (!isoString) return '';
   const d = new Date(isoString);
@@ -450,12 +519,12 @@ async function readTimecardEntries(filters = {}) {
     // Parse clock-in date for filtering (format: "Nov 25, 2026, 2:29 PM")
     let clockInDate = '';
     if (clockInTime) {
-      try {
-        const parsed = new Date(clockInTime);
-        if (!isNaN(parsed.getTime())) {
-          clockInDate = parsed.toISOString().slice(0, 10);
-        }
-      } catch (e) { /* ignore parse errors */ }
+      const iso = parseSheetDateTime(clockInTime);
+      if (iso) {
+        // Convert to TIMEZONE local date for date-range filtering
+        const localDate = new Date(iso).toLocaleDateString('en-CA', { timeZone: TIMEZONE });
+        clockInDate = localDate; // YYYY-MM-DD
+      }
     }
 
     // Apply filters
@@ -578,6 +647,7 @@ module.exports = {
   readPTOEntries,
   getClockStatusFromSheets,
   isConfigured,
+  parseSheetDateTime,
   // Exposed for testing
   getAccessToken,
   SPREADSHEET_ID,

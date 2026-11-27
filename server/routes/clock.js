@@ -396,12 +396,8 @@ async function handleGetStatus(authUser) {
       if (sheetStatus.clocked_in) {
         // Re-hydrate the entry into the local DB so clock-out works seamlessly
         const se = sheetStatus.entry;
-        // Parse the sheet date format back to ISO
-        let clockInISO = se.clock_in;
-        try {
-          const parsed = new Date(se.clock_in);
-          if (!isNaN(parsed.getTime())) clockInISO = parsed.toISOString();
-        } catch (e) { /* use as-is */ }
+        // Parse the sheet date format back to ISO (timezone-aware)
+        let clockInISO = sheets.parseSheetDateTime(se.clock_in) || se.clock_in;
 
         openEntry = db.insert('clock_entries', {
           user_id: authUser.id,
@@ -484,11 +480,9 @@ async function handleGetAllEntries(authUser, query) {
         // Try to map name back to a user for user_id and office_code
         const matchedUser = nameToUser[se.name.toLowerCase()] || null;
 
-        // Parse formatted dates into ISO for frontend date-slicing
-        let clockIn = null;
-        let clockOut = null;
-        try { if (se.clock_in_time) clockIn = new Date(se.clock_in_time).toISOString(); } catch (e) {}
-        try { if (se.clock_out_time) clockOut = new Date(se.clock_out_time).toISOString(); } catch (e) {}
+        // Parse formatted dates into ISO for frontend date-slicing (timezone-aware)
+        let clockIn = se.clock_in_time ? sheets.parseSheetDateTime(se.clock_in_time) : null;
+        let clockOut = se.clock_out_time ? sheets.parseSheetDateTime(se.clock_out_time) : null;
 
         const officeCode = matchedUser?.office_code || nameToCode[se.office.toLowerCase()] || '';
 
