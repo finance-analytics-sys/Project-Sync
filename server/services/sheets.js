@@ -396,8 +396,8 @@ async function readRows(tab) {
   const range = `${tab}!A:Z`;
   const result = await sheetsRequest('GET', `/values/${encodeURIComponent(range)}`);
   if (result.error) {
-    console.error(`[Sheets] readRows from ${tab} failed:`, result.error);
-    return [];
+    // Throw so callers (logs, attendance) can catch and fall back to local DB
+    throw new Error(`readRows from ${tab} failed: ${result.error}`);
   }
   return result.values || [];
 }
