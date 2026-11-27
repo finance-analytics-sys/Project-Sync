@@ -86,7 +86,7 @@ async function handleGetLogs(authUser, query) {
         userName = user ? `${user.first_name} ${user.last_name}` : '';
       }
 
-      const entries = await sheets.readTimecardEntries({
+      let entries = await sheets.readTimecardEntries({
         start_date: query.start_date || '',
         end_date: query.end_date || '',
         office: officeName,
