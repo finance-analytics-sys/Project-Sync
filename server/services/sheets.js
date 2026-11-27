@@ -475,14 +475,27 @@ async function writeHolidayTimecardEntries(/* holidayDate, employees */) {
 /**
  * Read all rows from a tab. Returns array of row arrays (strings).
  */
-async function readRows(tab) {
+async function readRows(tab, valueRenderOption) {
   const range = `${tab}!A:Z`;
-  const result = await sheetsRequest('GET', `/values/${encodeURIComponent(range)}`);
+  const qs = valueRenderOption ? `?valueRenderOption=${valueRenderOption}` : '';
+  const result = await sheetsRequest('GET', `/values/${encodeURIComponent(range)}${qs}`);
   if (result.error) {
     // Throw so callers (logs, attendance, status) can catch and fall back to local DB
     throw new Error(`readRows from ${tab} failed: ${result.error}`);
   }
   return result.values || [];
+}
+
+/**
+ * Extract lat/lng from a HYPERLINK formula like:
+ *   =HYPERLINK("https://www.google.com/maps?q=17.371,78.485","Address text")
+ * Returns { lat, lng } or null.
+ */
+function parseLatLngFromHyperlink(formula) {
+  if (!formula || !formula.startsWith('=HYPERLINK')) return null;
+  const m = formula.match(/maps\?q=([-\d.]+),([-\d.]+)/);
+  if (!m) return null;
+  return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
 }
 
 /**
@@ -494,7 +507,12 @@ async function readRows(tab) {
  * Supports filters: start_date, end_date, office, user_name, job_code
  */
 async function readTimecardEntries(filters = {}) {
-  const rows = await readRows(TIMECARD_TAB);
+  // Fetch both display values and formulas in parallel
+  // Formulas needed to extract lat/lng from HYPERLINK in Clock in Address column
+  const [rows, formulaRows] = await Promise.all([
+    readRows(TIMECARD_TAB),
+    readRows(TIMECARD_TAB, 'FORMULA'),
+  ]);
   if (rows.length <= 1) return []; // header only or empty
 
   // Skip header row
@@ -515,6 +533,11 @@ async function readTimecardEntries(filters = {}) {
     const comment = r[9] || '';
     const clockInAddress = r[10] || '';
     const clockOutAddress = r[11] || '';
+
+    // Extract lat/lng from HYPERLINK formula in Clock in Address (col K, index 10)
+    const fr = formulaRows[i];
+    const clockInCoords = fr ? parseLatLngFromHyperlink(fr[10]) : null;
+    const clockOutCoords = fr ? parseLatLngFromHyperlink(fr[11]) : null;
 
     // Parse clock-in date for filtering (format: "Nov 25, 2026, 2:29 PM")
     let clockInDate = '';
@@ -546,6 +569,10 @@ async function readTimecardEntries(filters = {}) {
       comment,
       clock_in_address: clockInAddress,
       clock_out_address: clockOutAddress,
+      clock_in_lat: clockInCoords?.lat || null,
+      clock_in_lng: clockInCoords?.lng || null,
+      clock_out_lat: clockOutCoords?.lat || null,
+      clock_out_lng: clockOutCoords?.lng || null,
       break_length: breakLength,
       week_total: weekTotal,
       _row: i + 1,
