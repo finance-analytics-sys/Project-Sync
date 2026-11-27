@@ -1680,6 +1680,7 @@
               h('th', null, 'Name'),
               h('th', null, 'Office'),
               h('th', null, 'Clock in Location'),
+              h('th', null, 'Clock out Location'),
               h('th', null, 'Clock in time'),
               h('th', null, 'Clock out time'),
               h('th', null, 'Hours'),
@@ -1703,6 +1704,13 @@
                     : (e.clock_in_location
                       ? h('a', { href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.clock_in_location)}`, target: '_blank', rel: 'noopener noreferrer', style: 'color:var(--primary); text-decoration:underline; cursor:pointer;' }, e.clock_in_location)
                       : '—')
+                ),
+                h('td', { className: 'text-sm' },
+                  e.clock_out_address
+                    ? h('div', null,
+                        h('a', { href: (e.clock_out_lat != null && e.clock_out_lng != null) ? `https://www.google.com/maps?q=${e.clock_out_lat},${e.clock_out_lng}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.clock_out_address)}`, target: '_blank', rel: 'noopener noreferrer', style: 'font-weight:500; color:var(--primary); text-decoration:underline; cursor:pointer;' }, e.clock_out_address),
+                      )
+                    : '—'
                 ),
                 h('td', { className: 'text-sm' }, e.clock_in_time ? (e.clock_in_time.includes('T') ? formatTime(e.clock_in_time) : e.clock_in_time) : '—'),
                 h('td', { className: 'text-sm' }, e.clock_out_time ? (e.clock_out_time.includes('T') ? formatTime(e.clock_out_time) : e.clock_out_time) : '—'),
