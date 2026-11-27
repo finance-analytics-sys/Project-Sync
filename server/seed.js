@@ -28,6 +28,7 @@ const executives = [
   { first: 'Stephen', last: 'Maiale',  email: 'vp-ops-phl@visitingangels.com'  },
   { first: 'Rochelle', last: 'Sajda',  email: 'rsajda@visitingangels.com'  },
   { first: 'Mona R',   last: 'Nandy',  email: 'mnandy@visitingangels.com'      },
+  { first: 'Syed',     last: 'Ali',    email: 'sali@ycvliving.com'             },
 ];
 
 // ── CEO (email-only visibility, not an approver) ──
