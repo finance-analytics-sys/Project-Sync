@@ -166,7 +166,7 @@ async function handleRequest(req, res) {
       else if (pathname === '/api/clock/status' && req.method === 'GET') {
         const user = requireAuth(req, res);
         if (!user) return;
-        result = handleGetStatus(user);
+        result = await handleGetStatus(user);
       }
       else if (pathname === '/api/clock/history' && req.method === 'GET') {
         const user = requireAuth(req, res);
