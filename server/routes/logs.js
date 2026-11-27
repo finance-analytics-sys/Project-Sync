@@ -12,48 +12,67 @@ const sheets = require('../services/sheets');
  * Sets week_total on the LAST entry of each week per employee.
  */
 function addWeekTotals(entries) {
-  // Group entries by employee name and week
-  // We need a copy sorted chronologically (oldest first) for week grouping
+  const TIMEZONE = process.env.APP_TIMEZONE || 'America/New_York';
+
+  // For each entry, determine the Monday of its week and the local day of week
+  function getWeekInfo(dateStr) {
+    if (!dateStr) return null;
+    // Use timezone-aware parsing for Sheets formatted dates
+    const iso = sheets.parseSheetDateTime ? sheets.parseSheetDateTime(dateStr) : null;
+    const d = iso ? new Date(iso) : new Date(dateStr);
+    if (isNaN(d.getTime())) return null;
+
+    // Get the local day of week in TIMEZONE
+    const localDay = parseInt(new Intl.DateTimeFormat('en-US', {
+      timeZone: TIMEZONE, weekday: 'narrow',
+    }).formatToParts(d).find(p => p.type === 'weekday')?.value || '0');
+
+    // Use a more reliable approach: get the full local date in TIMEZONE
+    const localDate = new Date(d.toLocaleString('en-US', { timeZone: TIMEZONE }));
+    const dayOfWeek = localDate.getDay(); // 0=Sun, 1=Mon, ...
+
+    // Calculate the Monday of this week
+    const diff = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(localDate);
+    monday.setDate(localDate.getDate() + diff);
+    const mondayStr = monday.toISOString().slice(0, 10);
+
+    return { monday: mondayStr, isSunday: dayOfWeek === 0 };
+  }
+
+  // Sort chronologically (oldest first) for week grouping
   const chrono = [...entries].sort((a, b) => {
     const dateA = a.clock_in_time || a.clock_in || a.created_at || '';
     const dateB = b.clock_in_time || b.clock_in || b.created_at || '';
     return dateA.localeCompare(dateB);
   });
 
-  // For each entry, determine the Monday of its week
-  function getWeekMonday(dateStr) {
-    if (!dateStr) return null;
-    let d;
-    try { d = new Date(dateStr); } catch (e) { return null; }
-    if (isNaN(d.getTime())) return null;
-    const day = d.getDay(); // 0=Sun, 1=Mon, ...
-    const diff = day === 0 ? -6 : 1 - day; // Shift to Monday
-    const monday = new Date(d);
-    monday.setDate(d.getDate() + diff);
-    return monday.toISOString().slice(0, 10);
-  }
-
-  // Build a map: employeeName -> weekMonday -> { totalHours, lastEntryId }
+  // Build a map: employeeName|||weekMonday -> { totalHours, lastSundayEntryId }
+  // Week total only shows on the last SUNDAY entry of each week
   const weekMap = {};
   chrono.forEach((e) => {
     const name = e.name || e.user_name || '';
     const dateStr = e.clock_in_time || e.clock_in || '';
-    const monday = getWeekMonday(dateStr);
-    if (!monday || !name) return;
+    const info = getWeekInfo(dateStr);
+    if (!info || !name) return;
 
-    const key = `${name}|||${monday}`;
-    if (!weekMap[key]) weekMap[key] = { totalHours: 0, lastEntryId: null };
+    const key = `${name}|||${info.monday}`;
+    if (!weekMap[key]) weekMap[key] = { totalHours: 0, lastSundayEntryId: null };
 
     const hrs = parseFloat(e.hours) || 0;
     weekMap[key].totalHours += hrs;
-    weekMap[key].lastEntryId = e.id;
+
+    // Only track the last Sunday entry for displaying the total
+    if (info.isSunday) {
+      weekMap[key].lastSundayEntryId = e.id;
+    }
   });
 
-  // Apply week_total to the last entry of each week
+  // Apply week_total only to Sunday entries
   const idToWeekTotal = {};
-  Object.values(weekMap).forEach(({ totalHours, lastEntryId }) => {
-    if (lastEntryId && totalHours > 0) {
-      idToWeekTotal[lastEntryId] = totalHours.toFixed(2);
+  Object.values(weekMap).forEach(({ totalHours, lastSundayEntryId }) => {
+    if (lastSundayEntryId && totalHours > 0) {
+      idToWeekTotal[lastSundayEntryId] = totalHours.toFixed(2);
     }
   });
 
