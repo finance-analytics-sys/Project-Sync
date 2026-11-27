@@ -227,6 +227,20 @@ function formatDateRangeForSheet(startDate, endDate) {
   return `${formatDateForSheet(startDate)} – ${formatDateForSheet(endDate)}`;
 }
 
+/**
+ * Format address with a Google Maps hyperlink for Sheets.
+ * If lat/lng are available, creates a clickable pin link.
+ * Returns the address as-is if no coordinates are available.
+ */
+function formatAddressWithMapLink(address, lat, lng) {
+  if (!address) return '';
+  if (lat != null && lng != null) {
+    const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+    return `=HYPERLINK("${mapsUrl}","${address.replace(/"/g, '""')}")`;
+  }
+  return address;
+}
+
 // ── Public API ──
 
 /**
@@ -254,8 +268,8 @@ async function writeTimecardEntry(entry, user, officeName) {
     '', // Week Total — computed on read
     entry.job_code || 'Regular',
     entry.comment || '',
-    entry.clock_in_address || '',
-    hasClockOut ? (entry.clock_out_address || '') : '',
+    formatAddressWithMapLink(entry.clock_in_address, entry.clock_in_lat, entry.clock_in_lng),
+    hasClockOut ? formatAddressWithMapLink(entry.clock_out_address, entry.clock_out_lat, entry.clock_out_lng) : '',
   ];
 
   return appendRows(TIMECARD_TAB, [row]);
@@ -305,7 +319,7 @@ async function updateTimecardClockOut(entry, user, officeName) {
 
   // Update E:L (clock out time, break length, hours, week total, job code, comment, clock in address preserved, clock out address)
   return updateRange(TIMECARD_TAB, `E${targetRow}:L${targetRow}`, [
-    [clockOutFormatted, entry.break_length || '', hours, '', entry.job_code || 'Regular', comment, existingClockInAddress, entry.clock_out_address || ''],
+    [clockOutFormatted, entry.break_length || '', hours, '', entry.job_code || 'Regular', comment, existingClockInAddress, formatAddressWithMapLink(entry.clock_out_address, entry.clock_out_lat, entry.clock_out_lng)],
   ]);
 }
 
