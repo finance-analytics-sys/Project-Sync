@@ -265,7 +265,7 @@
     // Check if user has approval permissions
     const canApprove = currentUser.level <= 2;
 
-    const role = currentUser.level === 1 ? 'Executive' : currentUser.level === 2 ? 'Supervisor' : 'Employee';
+    const role = currentUser.display_role || (currentUser.level === 1 ? 'Executive' : currentUser.level === 2 ? 'Supervisor' : 'Employee');
     const menu = [
       ['home','⌂','Home'],
       ...(currentUser.level === 1 ? [] : [['clock','◷','Clock'],['flex-clock','⇄','Flex Clock In'],['pto','▦','Request PTO'],['my-pto','▤','My PTO']]),
