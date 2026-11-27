@@ -525,11 +525,19 @@ async function handleGetAllEntries(authUser, query) {
 
       return { status: 200, body: { entries: entries.slice(0, 500), source: 'sheets' } };
     } catch (err) {
-      console.error('[Clock/All] Sheets read failed, falling back to DB:', err.message);
+      console.error('[Clock/All] Sheets read failed:', err.message);
+      return {
+        status: 200,
+        body: {
+          entries: [],
+          source: 'sheets-error',
+          error: 'Could not read from Google Sheets. Please try again.',
+        },
+      };
     }
   }
 
-  // Fallback: local JSON DB
+  // Fallback: local JSON DB (only when Sheets is not configured)
   let entries;
   if (authUser.level <= 1) {
     entries = db.findAll('clock_entries');

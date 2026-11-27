@@ -106,11 +106,23 @@ async function handleGetLogs(authUser, query) {
         },
       };
     } catch (err) {
-      console.error('[Logs] Sheets read failed, falling back to DB:', err.message);
+      console.error('[Logs] Sheets read failed:', err.message);
+      // Return error instead of falling back to stale local DB data.
+      // The local DB is ephemeral on Render and may contain entries
+      // that were already deleted from the spreadsheet.
+      return {
+        status: 200,
+        body: {
+          entries: [],
+          total: 0,
+          source: 'sheets-error',
+          error: 'Could not read from Google Sheets. Please try again.',
+        },
+      };
     }
   }
 
-  // Fallback: read from local JSON database
+  // Fallback: read from local JSON database (only when Sheets is not configured)
   let entries = db.findAll('clock_entries');
 
   // Enrich with user and office data
