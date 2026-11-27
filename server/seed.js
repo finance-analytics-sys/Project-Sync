@@ -26,7 +26,7 @@ const offices = [
 // ── Level 1 — Executives (final approvers) ──
 const executives = [
   { first: 'Stephen', last: 'Maiale',  email: 'christophersmith0580+stephen@gmail.com'  },
-  { first: 'Rochelle', last: 'Sajda',  email: 'rsajda@visitingangels.com'  },
+  { first: 'Rochelle', last: 'Sajda',  email: 'christophersmith0580+rochelle@gmail.com'  },
   { first: 'Mona R',   last: 'Nandy',  email: 'christophersmith0580+mona@gmail.com'      },
 ];
 
