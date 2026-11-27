@@ -350,7 +350,11 @@ async function writeTimecardEntry(entry, user, officeName) {
  * then updates clock-out time, hours, and comment.
  */
 async function updateTimecardClockOut(entry, user, officeName) {
-  const rows = await readRows(TIMECARD_TAB);
+  // Read both display values (for matching) and formulas (to preserve HYPERLINK in clock-in address)
+  const [rows, formulaRows] = await Promise.all([
+    readRows(TIMECARD_TAB),
+    readRows(TIMECARD_TAB, 'FORMULA'),
+  ]);
   if (!rows || rows.length <= 1) return { error: 'No rows to update' };
 
   const fullName = `${user.first_name} ${user.last_name}`;
@@ -383,8 +387,10 @@ async function updateTimecardClockOut(entry, user, officeName) {
   const clockOutFormatted = formatDateTimeForSheet(entry.clock_out);
   const comment = entry.comment || '';
 
-  // Preserve existing clock-in address (column K) while updating E:L
-  const existingClockInAddress = rows[targetRow - 1]?.[10] || '';
+  // Preserve existing clock-in address HYPERLINK formula (column K)
+  // Read from formulaRows so the =HYPERLINK(...) formula survives the round-trip
+  const fr = formulaRows[targetRow - 1];
+  const existingClockInAddress = (fr && fr[10]) || rows[targetRow - 1]?.[10] || '';
 
   // Update E:L (clock out time, break length, hours, week total, job code, comment, clock in address preserved, clock out address)
   return updateRange(TIMECARD_TAB, `E${targetRow}:L${targetRow}`, [
