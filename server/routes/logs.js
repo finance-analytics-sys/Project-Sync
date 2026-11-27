@@ -2,10 +2,66 @@
  * Logs routes — executive-only view of all clock entries.
  * Reads from Google Sheets (source of truth) with JSON DB fallback.
  * Columns match the Timecard spreadsheet exactly:
- *   Name, Office, Clock in Location, Clock in time, Clock out time, Hours, Job Code, Comment
+ *   Name, Office, Clock in Location, Clock in time, Clock out time, Hours, Job Code, Comment, Clock in Address, Clock out Address, Break Length, Week Total
  */
 const db = require('../db');
 const sheets = require('../services/sheets');
+
+/**
+ * Calculate week totals (Monday-Sunday) for each employee.
+ * Sets week_total on the LAST entry of each week per employee.
+ */
+function addWeekTotals(entries) {
+  // Group entries by employee name and week
+  // We need a copy sorted chronologically (oldest first) for week grouping
+  const chrono = [...entries].sort((a, b) => {
+    const dateA = a.clock_in_time || a.clock_in || a.created_at || '';
+    const dateB = b.clock_in_time || b.clock_in || b.created_at || '';
+    return dateA.localeCompare(dateB);
+  });
+
+  // For each entry, determine the Monday of its week
+  function getWeekMonday(dateStr) {
+    if (!dateStr) return null;
+    let d;
+    try { d = new Date(dateStr); } catch (e) { return null; }
+    if (isNaN(d.getTime())) return null;
+    const day = d.getDay(); // 0=Sun, 1=Mon, ...
+    const diff = day === 0 ? -6 : 1 - day; // Shift to Monday
+    const monday = new Date(d);
+    monday.setDate(d.getDate() + diff);
+    return monday.toISOString().slice(0, 10);
+  }
+
+  // Build a map: employeeName -> weekMonday -> { totalHours, lastEntryId }
+  const weekMap = {};
+  chrono.forEach((e) => {
+    const name = e.name || e.user_name || '';
+    const dateStr = e.clock_in_time || e.clock_in || '';
+    const monday = getWeekMonday(dateStr);
+    if (!monday || !name) return;
+
+    const key = `${name}|||${monday}`;
+    if (!weekMap[key]) weekMap[key] = { totalHours: 0, lastEntryId: null };
+
+    const hrs = parseFloat(e.hours) || 0;
+    weekMap[key].totalHours += hrs;
+    weekMap[key].lastEntryId = e.id;
+  });
+
+  // Apply week_total to the last entry of each week
+  const idToWeekTotal = {};
+  Object.values(weekMap).forEach(({ totalHours, lastEntryId }) => {
+    if (lastEntryId && totalHours > 0) {
+      idToWeekTotal[lastEntryId] = totalHours.toFixed(2);
+    }
+  });
+
+  return entries.map((e) => ({
+    ...e,
+    week_total: idToWeekTotal[e.id] || e.week_total || '',
+  }));
+}
 
 async function handleGetLogs(authUser, query) {
   // Executive-only (L1 and CEO)
@@ -37,6 +93,9 @@ async function handleGetLogs(authUser, query) {
         user_name: userName,
         job_code: query.job_code || '',
       });
+
+      // Calculate week totals for sheets entries
+      entries = addWeekTotals(entries);
 
       return {
         status: 200,
@@ -78,11 +137,12 @@ async function handleGetLogs(authUser, query) {
       clock_out_address: e.clock_out_address || '',
       clock_in_time: e.clock_in || null,
       clock_out_time: e.clock_out || null,
-      hours: hours,
+      hours: e.net_hours || hours,
       job_code: e.job_code || 'Regular',
       comment: e.comment || '',
       user_id: e.user_id,
       created_at: e.created_at,
+      break_length: e.break_length || '',
     };
   });
 
@@ -121,6 +181,9 @@ async function handleGetLogs(authUser, query) {
   if (query.job_code) {
     entries = entries.filter((e) => e.job_code === query.job_code);
   }
+
+  // Calculate week totals (Mon-Sun) for DB entries
+  entries = addWeekTotals(entries);
 
   return {
     status: 200,

@@ -268,7 +268,7 @@
     const role = currentUser.level === 1 ? 'Executive' : currentUser.level === 2 ? 'Supervisor' : 'Employee';
     const menu = [
       ['home','⌂','Home'],
-      ...(currentUser.level === 1 ? [] : [['clock','◷','Clock'],['pto','▦','Request PTO'],['my-pto','▤','My PTO']]),
+      ...(currentUser.level === 1 ? [] : [['clock','◷','Clock'],['flex-clock','⇄','Flex Clock In'],['pto','▦','Request PTO'],['my-pto','▤','My PTO']]),
       ...(canApprove ? [['approvals','☷',currentUser.level === 1 ? 'PTO Approvals' : 'Approvals']] : []),
       ...(currentUser.level === 1 ? [['reports','▥','Attendance']] : []),
       ...(currentUser.level !== 1 && canApprove ? [['reports','▥','Reports']] : []),
@@ -350,10 +350,11 @@
     if (!content) return;
     content.innerHTML = '';
     const heading = $('#welcome-heading');
-    if (heading) heading.textContent = tabId === 'home' ? `Welcome back, ${currentUser.first_name}!` : ({ clock:'Your Attendance',pto:'Request Time Off','my-pto':'My PTO',approvals:'PTO Approvals',reports:'Reports',calendar:'PTO Calendar',logs:'Timecard Logs' }[tabId] || 'Project Sync');
+    if (heading) heading.textContent = tabId === 'home' ? `Welcome back, ${currentUser.first_name}!` : ({ clock:'Your Attendance','flex-clock':'Flex Clock In',pto:'Request Time Off','my-pto':'My PTO',approvals:'PTO Approvals',reports:'Reports',calendar:'PTO Calendar',logs:'Timecard Logs' }[tabId] || 'Project Sync');
     switch (tabId) {
       case 'home': renderHome(content); break;
       case 'clock': renderClockTab(content); break;
+      case 'flex-clock': renderFlexClockTab(content); break;
       case 'pto': renderPTOTab(content); break;
       case 'my-pto': renderMyPTOTab(content); break;
       case 'approvals': renderApprovalsTab(content); break;
@@ -504,6 +505,22 @@
       className: `status-badge ${clockStatus.clocked_in ? 'status-clocked-in' : 'status-clocked-out'}`,
     }, clockStatus.clocked_in ? `Clocked in since ${formatTime(clockStatus.current_entry?.clock_in)}` : 'Not clocked in');
 
+    // ── Lunch break eligibility banner ──
+    let lunchBanner = null;
+    if (clockStatus.clocked_in && clockStatus.current_entry) {
+      const clockInTime = new Date(clockStatus.current_entry.clock_in);
+      const hoursWorked = (Date.now() - clockInTime.getTime()) / 3600000;
+      if (hoursWorked >= 6) {
+        lunchBanner = h('div', {
+          style: 'background: linear-gradient(135deg, #fef3c7, #fde68a); border: 1px solid #f59e0b; border-radius: 12px; padding: 14px 20px; margin: 12px auto; max-width: 440px; text-align: center;',
+        },
+          h('div', { style: 'font-size: 20px; margin-bottom: 6px;' }, '🍽️'),
+          h('div', { style: 'font-weight: 600; color: #92400e; font-size: 14px;' }, "You've reached 6 hours — you're eligible for a 30-minute lunch break."),
+          h('div', { style: 'font-size: 12px; color: #b45309; margin-top: 4px;' }, '30 minutes will be auto-deducted from your hours at clock-out.'),
+        );
+      }
+    }
+
     // Comment field (optional)
     const commentWrap = h('div', { className: 'comment-wrap', style: 'margin: 1rem 0; width: 100%; max-width: 400px;' },
       h('label', { style: 'display:block; font-size:0.85rem; color:var(--muted); margin-bottom:0.3rem;' }, 'Comment (optional)'),
@@ -525,17 +542,35 @@
           if (commentInput && commentInput.value.trim()) {
             loc.comment = commentInput.value.trim();
           }
-          const endpoint = clockStatus.clocked_in ? '/clock/out' : '/clock/in';
-          const result = await api('POST', endpoint, loc);
 
-          if (result && result.ok) {
-            msgEl.innerHTML = `<div class="alert alert-success">${result.data.message}</div>`;
-            // Refresh
-            setTimeout(() => switchTab('clock'), 1500);
+          if (clockStatus.clocked_in) {
+            // Clock out
+            const result = await api('POST', '/clock/out', loc);
+            if (result && result.ok) {
+              // Check if flex prompt is needed
+              if (result.data.flex_prompt) {
+                const fp = result.data.flex_prompt;
+                showFlexPromptModal(fp, loc, msgEl);
+              } else {
+                msgEl.innerHTML = `<div class="alert alert-success">${result.data.message}</div>`;
+                setTimeout(() => switchTab('clock'), 1500);
+              }
+            } else {
+              msgEl.innerHTML = `<div class="alert alert-error">${result?.data?.error || 'Failed'}</div>`;
+              btnEl.disabled = false;
+              btnEl.textContent = 'Clock Out';
+            }
           } else {
-            msgEl.innerHTML = `<div class="alert alert-error">${result?.data?.error || 'Failed'}</div>`;
-            btnEl.disabled = false;
-            btnEl.textContent = clockStatus.clocked_in ? 'Clock Out' : 'Clock In';
+            // Clock in
+            const result = await api('POST', '/clock/in', loc);
+            if (result && result.ok) {
+              msgEl.innerHTML = `<div class="alert alert-success">${result.data.message}</div>`;
+              setTimeout(() => switchTab('clock'), 1500);
+            } else {
+              msgEl.innerHTML = `<div class="alert alert-error">${result?.data?.error || 'Failed'}</div>`;
+              btnEl.disabled = false;
+              btnEl.textContent = 'Clock In';
+            }
           }
         } catch (err) {
           msgEl.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
@@ -545,7 +580,9 @@
       },
     }, clockStatus.clocked_in ? 'Clock Out' : 'Clock In');
 
-    card.append(timeEl, dateEl, statusEl, commentWrap, btnEl, msgEl);
+    card.append(timeEl, dateEl, statusEl);
+    if (lunchBanner) card.appendChild(lunchBanner);
+    card.append(commentWrap, btnEl, msgEl);
     container.appendChild(card);
 
     // Recent history
@@ -557,7 +594,7 @@
           h('table', null,
             h('thead', null,
               h('tr', null,
-                h('th', null, 'Date'), h('th', null, 'Location'), h('th', null, 'Clock In'), h('th', null, 'Clock Out'), h('th', null, 'Hours'), h('th', null, 'Job Code'), h('th', null, 'Comment'),
+                h('th', null, 'Date'), h('th', null, 'Location'), h('th', null, 'Clock In'), h('th', null, 'Clock Out'), h('th', null, 'Hours'), h('th', null, 'Job Code'), h('th', null, 'Break'), h('th', null, 'Comment'),
               ),
             ),
             h('tbody', null,
@@ -575,13 +612,14 @@
                   h('td', null, formatTime(e.clock_in)),
                   h('td', null, e.clock_out ? formatTime(e.clock_out) : h('span', { className: 'badge badge-pending' }, 'Active')),
                   h('td', null, e.clock_out ? formatDuration(e.clock_in, e.clock_out) : '—'),
-                  h('td', null, h('span', { className: `badge ${e.job_code === 'PTO' ? 'badge-approved' : e.job_code === 'Holiday' ? 'badge-pending' : ''}`, style: 'font-size:0.75rem;' }, e.job_code || 'Regular')),
+                  h('td', null, h('span', { className: `badge ${e.job_code === 'PTO' ? 'badge-approved' : e.job_code === 'Holiday' ? 'badge-pending' : e.job_code === 'Flex Earned' ? 'badge-escalated' : e.job_code === 'Flex Used' ? 'badge-escalated' : ''}`, style: 'font-size:0.75rem;' }, e.job_code || 'Regular')),
+                  h('td', { style: 'font-size:0.8rem;' }, e.break_length || '—'),
                   h('td', { style: 'font-size:0.8rem;' },
                     e.comment
                       ? h('button', {
                           className: 'btn btn-sm',
                           style: 'padding:0.2rem 0.6rem; font-size:0.75rem; border:1px solid var(--border); border-radius:6px; background:var(--surface); color:var(--primary); cursor:pointer;',
-                          onclick: () => showCommentModal(e.comment, `${state.user.first_name} ${state.user.last_name}`),
+                          onclick: () => showCommentModal(e.comment, `${currentUser.first_name} ${currentUser.last_name}`),
                         }, 'View')
                       : '—'
                   ),
@@ -593,6 +631,197 @@
       );
       container.appendChild(histCard);
     }
+  }
+
+  // ── Flex Clock Tab ──
+  async function renderFlexClockTab(container) {
+    // Show disclaimer modal EVERY TIME
+    const overlay = h('div', {
+      style: 'position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; display:flex; align-items:center; justify-content:center;',
+    });
+    const modal = h('div', {
+      style: 'background:var(--surface); border-radius:16px; padding:2rem; max-width:440px; width:90%; box-shadow:0 20px 60px rgba(0,0,0,0.3); text-align:center;',
+    },
+      h('div', { style: 'font-size:2rem; margin-bottom:0.75rem;' }, '⇄'),
+      h('div', { style: 'font-weight:700; font-size:1.1rem; margin-bottom:1rem; color:var(--text);' }, 'Flex Clock In'),
+      h('div', {
+        style: 'background:linear-gradient(135deg, #fef3c7, #fde68a); border:1px solid #f59e0b; border-radius:10px; padding:1rem; margin-bottom:1.5rem;',
+      },
+        h('p', { style: 'color:#92400e; font-size:0.9rem; font-weight:600; margin:0;' },
+          'Please only clock in to the Flex Clock In section if you intend to use these flex hours later.'),
+      ),
+      h('div', { style: 'font-size:0.85rem; color:var(--muted); margin-bottom:1.5rem;' },
+        'Hours logged here will be banked as "Flex Earned" and can be applied when you clock out early on a regular workday.'),
+      h('button', {
+        className: 'btn btn-primary',
+        style: 'width:100%; padding:0.75rem; font-size:1rem; font-weight:600; border-radius:10px;',
+        onclick: () => {
+          overlay.remove();
+          renderFlexClockUI(container);
+        },
+      }, 'I Understand'),
+    );
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+  }
+
+  async function renderFlexClockUI(container) {
+    // Check flex status (is there an open flex entry?)
+    const statusRes = await api('GET', '/clock/status');
+    const balRes = await api('GET', '/clock/flex-balance');
+    const flexBalance = balRes?.ok ? balRes.data.balance : 0;
+
+    // Determine if currently flex-clocked-in
+    let flexClockedIn = false;
+    let flexEntry = null;
+    if (statusRes?.ok && statusRes.data.current_entry && statusRes.data.current_entry.job_code === 'Flex Earned') {
+      flexClockedIn = true;
+      flexEntry = statusRes.data.current_entry;
+    }
+
+    const card = h('div', { className: 'card clock-display' });
+
+    // Live clock
+    const timeEl = h('div', { className: 'time' }, new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+    const dateEl = h('div', { className: 'date' }, new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }));
+
+    if (clockInterval) clearInterval(clockInterval);
+    clockInterval = setInterval(() => {
+      timeEl.textContent = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    }, 1000);
+
+    // Flex balance display
+    const balanceEl = h('div', {
+      style: 'background:linear-gradient(135deg, var(--primary-light, #e0e7ff), var(--surface)); border:1px solid var(--primary); border-radius:12px; padding:14px 20px; margin:12px auto; max-width:300px; text-align:center;',
+    },
+      h('div', { style: 'font-size:0.8rem; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;' }, 'Flex Balance'),
+      h('div', { style: 'font-size:1.6rem; font-weight:700; color:var(--primary);' }, `${flexBalance.toFixed(2)} hrs`),
+    );
+
+    // Status
+    const statusEl = h('div', {
+      className: `status-badge ${flexClockedIn ? 'status-clocked-in' : 'status-clocked-out'}`,
+    }, flexClockedIn ? `Flex clocked in since ${formatTime(flexEntry.clock_in)}` : 'Not flex clocked in');
+
+    // Button
+    const msgEl = h('div', { id: 'flex-msg', className: 'mt-4' });
+    const btnEl = h('button', {
+      className: `btn clock-btn ${flexClockedIn ? 'btn-danger' : 'btn-success'}`,
+      onClick: async () => {
+        btnEl.disabled = true;
+        btnEl.textContent = 'Getting location...';
+        msgEl.innerHTML = '';
+
+        try {
+          const loc = await getLocation();
+
+          if (flexClockedIn) {
+            const result = await api('POST', '/clock/flex-out', loc);
+            if (result && result.ok) {
+              msgEl.innerHTML = `<div class="alert alert-success">${result.data.message}</div>`;
+              setTimeout(() => switchTab('flex-clock'), 1500);
+            } else {
+              msgEl.innerHTML = `<div class="alert alert-error">${result?.data?.error || 'Failed'}</div>`;
+              btnEl.disabled = false;
+              btnEl.textContent = 'Flex Clock Out';
+            }
+          } else {
+            const result = await api('POST', '/clock/flex-in', loc);
+            if (result && result.ok) {
+              msgEl.innerHTML = `<div class="alert alert-success">${result.data.message}</div>`;
+              setTimeout(() => switchTab('flex-clock'), 1500);
+            } else {
+              msgEl.innerHTML = `<div class="alert alert-error">${result?.data?.error || 'Failed'}</div>`;
+              btnEl.disabled = false;
+              btnEl.textContent = 'Flex Clock In';
+            }
+          }
+        } catch (err) {
+          msgEl.innerHTML = `<div class="alert alert-error">${err.message}</div>`;
+          btnEl.disabled = false;
+          btnEl.textContent = flexClockedIn ? 'Flex Clock Out' : 'Flex Clock In';
+        }
+      },
+    }, flexClockedIn ? 'Flex Clock Out' : 'Flex Clock In');
+
+    card.append(timeEl, dateEl, balanceEl, statusEl, btnEl, msgEl);
+    container.appendChild(card);
+
+    // Recent flex entries
+    if (balRes?.ok && balRes.data.recent_entries && balRes.data.recent_entries.length > 0) {
+      const histCard = h('div', { className: 'card' },
+        h('h2', null, 'Recent Flex History'),
+        h('div', { className: 'table-wrap' },
+          h('table', null,
+            h('thead', null,
+              h('tr', null,
+                h('th', null, 'Date'), h('th', null, 'Clock In'), h('th', null, 'Clock Out'), h('th', null, 'Hours'), h('th', null, 'Type'),
+              ),
+            ),
+            h('tbody', null,
+              ...balRes.data.recent_entries.map((e) =>
+                h('tr', null,
+                  h('td', null, formatDate(e.clock_in)),
+                  h('td', null, formatTime(e.clock_in)),
+                  h('td', null, e.clock_out ? formatTime(e.clock_out) : h('span', { className: 'badge badge-pending' }, 'Active')),
+                  h('td', null, e.hours ? Number(e.hours).toFixed(2) : '—'),
+                  h('td', null, h('span', { className: 'badge badge-escalated' }, e.job_code)),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      container.appendChild(histCard);
+    }
+  }
+
+  // ── Flex Prompt Modal (shown at regular clock-out when hours < 8) ──
+  function showFlexPromptModal(fp, loc, msgEl) {
+    const overlay = h('div', {
+      style: 'position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; display:flex; align-items:center; justify-content:center;',
+    });
+    const modal = h('div', {
+      style: 'background:var(--surface); border-radius:16px; padding:2rem; max-width:440px; width:90%; box-shadow:0 20px 60px rgba(0,0,0,0.3); text-align:center;',
+    },
+      h('div', { style: 'font-size:2rem; margin-bottom:0.75rem;' }, '⏰'),
+      h('div', { style: 'font-weight:700; font-size:1.1rem; margin-bottom:0.5rem; color:var(--text);' }, 'Apply Flex Hours?'),
+      h('div', { style: 'font-size:0.9rem; color:var(--muted); margin-bottom:1rem;' },
+        `You worked ${fp.hours_worked} hours today. You have ${fp.flex_balance} flex hours available.`),
+      h('div', {
+        style: 'background:linear-gradient(135deg, #e0e7ff, #c7d2fe); border:1px solid var(--primary); border-radius:10px; padding:1rem; margin-bottom:1.5rem;',
+      },
+        h('p', { style: 'color:var(--primary); font-size:0.95rem; font-weight:600; margin:0;' },
+          `Apply ${fp.suggested_flex} flex hours to reach 8 hours?`),
+      ),
+      h('div', { style: 'display:flex; gap:0.75rem; justify-content:center;' },
+        h('button', {
+          className: 'btn btn-primary',
+          style: 'flex:1; padding:0.65rem; font-weight:600; border-radius:10px;',
+          onclick: async () => {
+            overlay.remove();
+            const result = await api('POST', '/clock/out', { ...loc, apply_flex_hours: fp.suggested_flex });
+            if (result && result.ok) {
+              msgEl.innerHTML = `<div class="alert alert-success">${result.data.message}<br><small>Applied ${fp.suggested_flex} flex hours</small></div>`;
+              setTimeout(() => switchTab('clock'), 2000);
+            } else {
+              msgEl.innerHTML = `<div class="alert alert-error">${result?.data?.error || 'Failed to apply flex hours'}</div>`;
+            }
+          },
+        }, `Yes, Apply ${fp.suggested_flex}h`),
+        h('button', {
+          className: 'btn btn-outline',
+          style: 'flex:1; padding:0.65rem; font-weight:600; border-radius:10px;',
+          onclick: () => {
+            overlay.remove();
+            msgEl.innerHTML = `<div class="alert alert-success">Clocked out successfully.</div>`;
+            setTimeout(() => switchTab('clock'), 1500);
+          },
+        }, 'No Thanks'),
+      ),
+    );
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
   }
 
   // ── PTO Request Tab ──
@@ -1386,7 +1615,7 @@
       onChange: (e) => { logsFilters.job_code = e.target.value; autoApply(); },
     });
     jobCodeSelect.appendChild(h('option', { value: 'all' }, 'All Job Codes'));
-    ['Regular', 'PTO', 'Holiday'].forEach((jc) => {
+    ['Regular', 'PTO', 'Holiday', 'Flex Earned', 'Flex Used'].forEach((jc) => {
       jobCodeSelect.appendChild(h('option', { value: jc, ...(logsFilters.job_code === jc ? { selected: 'true' } : {}) }, jc));
     });
 
@@ -1453,6 +1682,8 @@
               h('th', null, 'Clock out time'),
               h('th', null, 'Hours'),
               h('th', null, 'Job Code'),
+              h('th', null, 'Break'),
+              h('th', null, 'Week Total'),
               h('th', null, 'Comment'),
             ),
           ),
@@ -1474,9 +1705,11 @@
                 h('td', null, e.hours || '—'),
                 h('td', null,
                   h('span', {
-                    className: 'badge ' + (e.job_code === 'PTO' ? 'badge-info' : e.job_code === 'Holiday' ? 'badge-holiday' : 'badge-default'),
+                    className: 'badge ' + (e.job_code === 'PTO' ? 'badge-info' : e.job_code === 'Holiday' ? 'badge-holiday' : e.job_code === 'Flex Earned' ? 'badge-escalated' : e.job_code === 'Flex Used' ? 'badge-escalated' : 'badge-default'),
                   }, e.job_code),
                 ),
+                h('td', { className: 'text-sm' }, e.break_length || '—'),
+                h('td', { className: 'text-sm', style: e.week_total ? 'font-weight:600; color:var(--primary);' : '' }, e.week_total || '—'),
                 h('td', { className: 'text-sm text-muted' },
                   e.comment
                     ? h('button', {

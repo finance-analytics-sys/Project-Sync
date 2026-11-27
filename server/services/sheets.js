@@ -5,7 +5,7 @@
  *
  * Spreadsheet ID: 1ftgE58jBqGoMgWa2jVniGXzEkkoBQHA7cR0n77Hqo_Q
  *
- * Timecard tab columns: Name | Office | Clock in Location | Clock in time | Clock out time | Hours | Job code | Comment | Clock in Address | Clock out Address
+ * Timecard tab columns: Name | Office | Clock in Location | Clock in time | Clock out time | Hours | Job code | Comment | Clock in Address | Clock out Address | Break Length | Week Total
  * PTO tab columns:      Name | Office | PTO Date | Hours requested | Reason
  *
  * PTO tab: ONE row per request. Date range in single cell (e.g., "Nov 26 – Nov 29").
@@ -234,13 +234,14 @@ function formatDateRangeForSheet(startDate, endDate) {
  * Called on CLOCK-IN: writes immediately with "Currently Clocked In" placeholder.
  * Called on CLOCK-OUT (legacy fallback): writes the full completed entry.
  *
- * Columns: Name | Office | Clock in Location | Clock in time | Clock out time | Hours | Job code | Comment | Clock in Address | Clock out Address
+ * Columns: Name | Office | Clock in Location | Clock in time | Clock out time | Hours | Job code | Comment | Clock in Address | Clock out Address | Break Length | Week Total
  */
 async function writeTimecardEntry(entry, user, officeName) {
   const hasClockOut = !!entry.clock_out;
-  const hours = hasClockOut
-    ? ((new Date(entry.clock_out) - new Date(entry.clock_in)) / 3600000).toFixed(2)
-    : '0';
+  const rawHours = hasClockOut
+    ? ((new Date(entry.clock_out) - new Date(entry.clock_in)) / 3600000)
+    : 0;
+  const hours = entry.net_hours || (hasClockOut ? rawHours.toFixed(2) : '0');
 
   const row = [
     `${user.first_name} ${user.last_name}`,
@@ -253,6 +254,8 @@ async function writeTimecardEntry(entry, user, officeName) {
     entry.comment || '',
     entry.clock_in_address || '',
     hasClockOut ? (entry.clock_out_address || '') : '',
+    entry.break_length || '',
+    '', // Week Total — computed on read
   ];
 
   return appendRows(TIMECARD_TAB, [row]);
@@ -290,18 +293,19 @@ async function updateTimecardClockOut(entry, user, officeName) {
     return writeTimecardEntry(entry, user, officeName);
   }
 
-  const hours = ((new Date(entry.clock_out) - new Date(entry.clock_in)) / 3600000).toFixed(2);
+  const rawHours = (new Date(entry.clock_out) - new Date(entry.clock_in)) / 3600000;
+  const hours = entry.net_hours || rawHours.toFixed(2);
 
   // Update clock-out columns on the target row
   const clockOutFormatted = formatDateTimeForSheet(entry.clock_out);
   const comment = entry.comment || '';
 
-  // Preserve existing clock-in address (column I) while updating E:J
+  // Preserve existing clock-in address (column I) while updating E:L
   const existingClockInAddress = rows[targetRow - 1]?.[8] || '';
 
-  // Update E:J (clock out time, hours, job code, comment, clock in address preserved, clock out address)
-  return updateRange(TIMECARD_TAB, `E${targetRow}:J${targetRow}`, [
-    [clockOutFormatted, hours, entry.job_code || 'Regular', comment, existingClockInAddress, entry.clock_out_address || ''],
+  // Update E:L (clock out time, hours, job code, comment, clock in address preserved, clock out address, break length, week total)
+  return updateRange(TIMECARD_TAB, `E${targetRow}:L${targetRow}`, [
+    [clockOutFormatted, hours, entry.job_code || 'Regular', comment, existingClockInAddress, entry.clock_out_address || '', entry.break_length || '', ''],
   ]);
 }
 
@@ -424,6 +428,8 @@ async function readTimecardEntries(filters = {}) {
     const comment = r[7] || '';
     const clockInAddress = r[8] || '';
     const clockOutAddress = r[9] || '';
+    const breakLength = r[10] || '';
+    const weekTotal = r[11] || '';
 
     // Parse clock-in date for filtering (format: "Nov 25, 2026, 2:29 PM")
     let clockInDate = '';
@@ -455,6 +461,8 @@ async function readTimecardEntries(filters = {}) {
       comment,
       clock_in_address: clockInAddress,
       clock_out_address: clockOutAddress,
+      break_length: breakLength,
+      week_total: weekTotal,
       _row: i + 1,
     });
   }

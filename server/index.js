@@ -22,7 +22,7 @@ if (fs.existsSync(envPath)) {
 
 const { requireAuth, requireLevel } = require('./middleware/auth');
 const { handleLogin, handleGoogleLogin, handleChangePassword, handleGetMe } = require('./routes/auth');
-const { handleClockIn, handleClockOut, handleGetStatus, handleGetHistory, handleGetAllEntries } = require('./routes/clock');
+const { handleClockIn, handleClockOut, handleGetStatus, handleGetHistory, handleGetAllEntries, handleFlexClockIn, handleFlexClockOut, handleGetFlexBalance } = require('./routes/clock');
 const { handleSubmit, handleApprove, handleDeny, handleCancel, handleEdit, handleGetMyRequests, handleGetPendingApprovals, handleGetAllRequests, handleGetCalendar, handleGetAllApproved, handleExecutiveCancel } = require('./routes/pto');
 const { handleGetUsers, handleGetOffices, handleGetHolidays } = require('./routes/admin');
 const { handleGetLogs } = require('./routes/logs');
@@ -177,6 +177,25 @@ async function handleRequest(req, res) {
         const user = requireAuth(req, res);
         if (!user) return;
         result = await handleGetAllEntries(user, query);
+      }
+
+      // ── Flex Clock ──
+      else if (pathname === '/api/clock/flex-in' && req.method === 'POST') {
+        const user = requireAuth(req, res);
+        if (!user) return;
+        const body = await parseBody(req);
+        result = await handleFlexClockIn(body, user);
+      }
+      else if (pathname === '/api/clock/flex-out' && req.method === 'POST') {
+        const user = requireAuth(req, res);
+        if (!user) return;
+        const body = await parseBody(req);
+        result = await handleFlexClockOut(body, user);
+      }
+      else if (pathname === '/api/clock/flex-balance' && req.method === 'GET') {
+        const user = requireAuth(req, res);
+        if (!user) return;
+        result = handleGetFlexBalance(user);
       }
 
       // ── PTO ──
