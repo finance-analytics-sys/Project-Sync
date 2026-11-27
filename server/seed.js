@@ -31,7 +31,7 @@ const executives = [
 ];
 
 // ── CEO (email-only visibility, not an approver) ──
-const ceo = { first: 'Ananda', last: 'Nandy', email: 'christophersmith0580+ceo@gmail.com' };
+const ceo = { first: 'Ananda', last: 'Nandy', email: 'anandy@visitingangels.com' };
 
 // ── Level 2 — Office Managers (one per office) ──
 const managers = [
@@ -127,6 +127,7 @@ function seed() {
     email: ceo.email,
     password_hash: defaultPassword,
     role: 'executive',
+    display_role: 'CEO',
     level: 1,
     office_code: null,
     is_exempt: false,
