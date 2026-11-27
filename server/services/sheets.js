@@ -5,7 +5,7 @@
  *
  * Spreadsheet ID: 1ftgE58jBqGoMgWa2jVniGXzEkkoBQHA7cR0n77Hqo_Q
  *
- * Timecard tab columns: Name | Office | Clock in Location | Clock in time | Clock out time | Hours | Job code | Comment | Clock in Address | Clock out Address | Break Length | Week Total
+ * Timecard tab columns: Name | Office | Clock in Location | Clock in time | Clock out time | Break Length | Hours | Week Total | Job code | Comment | Clock in Address | Clock out Address
  * PTO tab columns:      Name | Office | PTO Date | Hours requested | Reason
  *
  * PTO tab: ONE row per request. Date range in single cell (e.g., "Nov 26 – Nov 29").
@@ -249,13 +249,13 @@ async function writeTimecardEntry(entry, user, officeName) {
     entry.clock_in_location || '',
     formatDateTimeForSheet(entry.clock_in),
     hasClockOut ? formatDateTimeForSheet(entry.clock_out) : 'Currently Clocked In',
+    entry.break_length || '',
     hours,
+    '', // Week Total — computed on read
     entry.job_code || 'Regular',
     entry.comment || '',
     entry.clock_in_address || '',
     hasClockOut ? (entry.clock_out_address || '') : '',
-    entry.break_length || '',
-    '', // Week Total — computed on read
   ];
 
   return appendRows(TIMECARD_TAB, [row]);
@@ -300,12 +300,12 @@ async function updateTimecardClockOut(entry, user, officeName) {
   const clockOutFormatted = formatDateTimeForSheet(entry.clock_out);
   const comment = entry.comment || '';
 
-  // Preserve existing clock-in address (column I) while updating E:L
-  const existingClockInAddress = rows[targetRow - 1]?.[8] || '';
+  // Preserve existing clock-in address (column K) while updating E:L
+  const existingClockInAddress = rows[targetRow - 1]?.[10] || '';
 
-  // Update E:L (clock out time, hours, job code, comment, clock in address preserved, clock out address, break length, week total)
+  // Update E:L (clock out time, break length, hours, week total, job code, comment, clock in address preserved, clock out address)
   return updateRange(TIMECARD_TAB, `E${targetRow}:L${targetRow}`, [
-    [clockOutFormatted, hours, entry.job_code || 'Regular', comment, existingClockInAddress, entry.clock_out_address || '', entry.break_length || '', ''],
+    [clockOutFormatted, entry.break_length || '', hours, '', entry.job_code || 'Regular', comment, existingClockInAddress, entry.clock_out_address || ''],
   ]);
 }
 
@@ -356,7 +356,9 @@ async function writePTOTimecardEntries(request, user, officeName) {
         'PTO',                    // Clock in Location = "PTO"
         dateStr + ' 9:00 AM',     // Nominal start
         dateStr + ' 5:00 PM',     // Nominal end
+        '',                       // Break Length
         hoursPerDay,
+        '',                       // Week Total
         'PTO',                    // Job Code
         `Approved PTO: ${request.reason || 'Time off'}`,
       ]);
@@ -423,13 +425,13 @@ async function readTimecardEntries(filters = {}) {
     const clockInLocation = r[2] || '';
     const clockInTime = r[3] || '';
     const clockOutTime = r[4] || '';
-    const hours = r[5] || '';
-    const jobCode = r[6] || 'Regular';
-    const comment = r[7] || '';
-    const clockInAddress = r[8] || '';
-    const clockOutAddress = r[9] || '';
-    const breakLength = r[10] || '';
-    const weekTotal = r[11] || '';
+    const breakLength = r[5] || '';
+    const hours = r[6] || '';
+    const weekTotal = r[7] || '';
+    const jobCode = r[8] || 'Regular';
+    const comment = r[9] || '';
+    const clockInAddress = r[10] || '';
+    const clockOutAddress = r[11] || '';
 
     // Parse clock-in date for filtering (format: "Nov 25, 2026, 2:29 PM")
     let clockInDate = '';
@@ -499,6 +501,53 @@ async function readPTOEntries() {
 }
 
 /**
+ * Get clock status for a specific employee from Google Sheets.
+ * Looks for the most recent row with "Currently Clocked In" in the clock-out column.
+ * Returns { clocked_in: true/false, entry: { ... } | null }
+ */
+async function getClockStatusFromSheets(fullName) {
+  const rows = await readRows(TIMECARD_TAB);
+  if (rows.length <= 1) return { clocked_in: false, entry: null };
+
+  // Scan from bottom (most recent) for a matching name with "Currently Clocked In"
+  for (let i = rows.length - 1; i >= 1; i--) {
+    const r = rows[i];
+    if (!r || !r.length) continue;
+
+    const name = r[0] || '';
+    if (name.toLowerCase() !== fullName.toLowerCase()) continue;
+
+    const clockOutTime = r[4] || '';
+    if (clockOutTime === 'Currently Clocked In') {
+      return {
+        clocked_in: true,
+        entry: {
+          id: `sheet-row-${i + 1}`,
+          name,
+          office: r[1] || '',
+          clock_in_location: r[2] || '',
+          clock_in: r[3] || '',
+          clock_out: null,
+          break_length: r[5] || '',
+          hours: r[6] || '',
+          week_total: r[7] || '',
+          job_code: r[8] || 'Regular',
+          comment: r[9] || '',
+          clock_in_address: r[10] || '',
+          clock_out_address: '',
+          _sheet_row: i + 1,
+        },
+      };
+    }
+
+    // If the most recent entry for this employee has a clock-out time, they're not clocked in
+    return { clocked_in: false, entry: null };
+  }
+
+  return { clocked_in: false, entry: null };
+}
+
+/**
  * Check if Sheets integration is configured and ready.
  */
 function isConfigured() {
@@ -513,6 +562,7 @@ module.exports = {
   writeHolidayTimecardEntries,
   readTimecardEntries,
   readPTOEntries,
+  getClockStatusFromSheets,
   isConfigured,
   // Exposed for testing
   getAccessToken,

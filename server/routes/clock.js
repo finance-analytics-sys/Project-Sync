@@ -29,9 +29,17 @@ async function handleClockIn(body, authUser) {
   }
 
   // Check if already clocked in (has an open entry with no clock_out)
-  const openEntry = db.findOne('clock_entries', (e) =>
+  let openEntry = db.findOne('clock_entries', (e) =>
     e.user_id === authUser.id && !e.clock_out
   );
+  // Also check Sheets in case DB was wiped (Render restart)
+  if (!openEntry && sheets.isConfigured()) {
+    try {
+      const fullName = `${authUser.first_name} ${authUser.last_name}`;
+      const sheetStatus = await sheets.getClockStatusFromSheets(fullName);
+      if (sheetStatus.clocked_in) openEntry = sheetStatus.entry;
+    } catch (err) { /* non-fatal */ }
+  }
   if (openEntry) {
     return { status: 400, body: { error: 'You are already clocked in. Please clock out first.' } };
   }
@@ -225,9 +233,17 @@ async function handleFlexClockIn(body, authUser) {
   }
 
   // Check if already clocked in (regular or flex)
-  const openEntry = db.findOne('clock_entries', (e) =>
+  let openEntry = db.findOne('clock_entries', (e) =>
     e.user_id === authUser.id && !e.clock_out
   );
+  // Also check Sheets in case DB was wiped (Render restart)
+  if (!openEntry && sheets.isConfigured()) {
+    try {
+      const fullName = `${authUser.first_name} ${authUser.last_name}`;
+      const sheetStatus = await sheets.getClockStatusFromSheets(fullName);
+      if (sheetStatus.clocked_in) openEntry = sheetStatus.entry;
+    } catch (err) { /* non-fatal */ }
+  }
   if (openEntry) {
     return { status: 400, body: { error: 'You are already clocked in. Please clock out first.' } };
   }
@@ -366,10 +382,50 @@ function handleGetFlexBalance(authUser) {
   };
 }
 
-function handleGetStatus(authUser) {
-  const openEntry = db.findOne('clock_entries', (e) =>
+async function handleGetStatus(authUser) {
+  // Check local DB first
+  let openEntry = db.findOne('clock_entries', (e) =>
     e.user_id === authUser.id && !e.clock_out
   );
+
+  // If no open entry in DB, fall back to Google Sheets (survives Render restarts)
+  if (!openEntry && sheets.isConfigured()) {
+    try {
+      const fullName = `${authUser.first_name} ${authUser.last_name}`;
+      const sheetStatus = await sheets.getClockStatusFromSheets(fullName);
+      if (sheetStatus.clocked_in) {
+        // Re-hydrate the entry into the local DB so clock-out works seamlessly
+        const se = sheetStatus.entry;
+        // Parse the sheet date format back to ISO
+        let clockInISO = se.clock_in;
+        try {
+          const parsed = new Date(se.clock_in);
+          if (!isNaN(parsed.getTime())) clockInISO = parsed.toISOString();
+        } catch (e) { /* use as-is */ }
+
+        openEntry = db.insert('clock_entries', {
+          user_id: authUser.id,
+          office_code: authUser.office_code || se.office,
+          clock_in: clockInISO,
+          clock_out: null,
+          clock_in_lat: null,
+          clock_in_lng: null,
+          clock_in_location: se.clock_in_location || '',
+          clock_in_address: se.clock_in_address || null,
+          clock_out_lat: null,
+          clock_out_lng: null,
+          clock_out_location: null,
+          clock_out_address: null,
+          job_code: se.job_code || 'Regular',
+          comment: se.comment || null,
+          _restored_from_sheets: true,
+        });
+        console.log(`[Clock] Restored open clock entry from Sheets for ${fullName}`);
+      }
+    } catch (err) {
+      console.error('[Clock] Sheets status fallback failed (non-fatal):', err.message);
+    }
+  }
 
   return {
     status: 200,
