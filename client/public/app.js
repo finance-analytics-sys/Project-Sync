@@ -604,12 +604,12 @@
                   h('td', { style: 'font-size:0.8rem;' },
                     e.clock_in_address
                       ? h('div', null,
-                          (e.clock_in_lat != null && e.clock_in_lng != null)
-                            ? h('a', { href: `https://www.google.com/maps?q=${e.clock_in_lat},${e.clock_in_lng}`, target: '_blank', rel: 'noopener noreferrer', style: 'font-weight:500; color:var(--primary); text-decoration:underline; cursor:pointer;' }, e.clock_in_address)
-                            : h('div', { style: 'font-weight:500;' }, e.clock_in_address),
+                          h('a', { href: (e.clock_in_lat != null && e.clock_in_lng != null) ? `https://www.google.com/maps?q=${e.clock_in_lat},${e.clock_in_lng}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.clock_in_address)}`, target: '_blank', rel: 'noopener noreferrer', style: 'font-weight:500; color:var(--primary); text-decoration:underline; cursor:pointer;' }, e.clock_in_address),
                           h('div', { style: 'font-size:0.75rem; color:var(--muted); margin-top:2px;' }, e.clock_in_location || '')
                         )
-                      : (e.clock_in_location || '—')
+                      : (e.clock_in_location
+                        ? h('a', { href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.clock_in_location)}`, target: '_blank', rel: 'noopener noreferrer', style: 'color:var(--primary); text-decoration:underline; cursor:pointer;' }, e.clock_in_location)
+                        : '—')
                   ),
                   h('td', null, formatTime(e.clock_in)),
                   h('td', null, e.clock_out ? formatTime(e.clock_out) : h('span', { className: 'badge badge-pending' }, 'Active')),
@@ -1697,12 +1697,12 @@
                 h('td', { className: 'text-sm' },
                   e.clock_in_address
                     ? h('div', null,
-                        (e.clock_in_lat != null && e.clock_in_lng != null)
-                          ? h('a', { href: `https://www.google.com/maps?q=${e.clock_in_lat},${e.clock_in_lng}`, target: '_blank', rel: 'noopener noreferrer', style: 'font-weight:500; color:var(--primary); text-decoration:underline; cursor:pointer;' }, e.clock_in_address)
-                          : h('div', { style: 'font-weight:500;' }, e.clock_in_address),
+                        h('a', { href: (e.clock_in_lat != null && e.clock_in_lng != null) ? `https://www.google.com/maps?q=${e.clock_in_lat},${e.clock_in_lng}` : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.clock_in_address)}`, target: '_blank', rel: 'noopener noreferrer', style: 'font-weight:500; color:var(--primary); text-decoration:underline; cursor:pointer;' }, e.clock_in_address),
                         h('div', { style: 'font-size:0.75rem; color:var(--muted); margin-top:2px;' }, e.clock_in_location || '')
                       )
-                    : (e.clock_in_location || '—')
+                    : (e.clock_in_location
+                      ? h('a', { href: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.clock_in_location)}`, target: '_blank', rel: 'noopener noreferrer', style: 'color:var(--primary); text-decoration:underline; cursor:pointer;' }, e.clock_in_location)
+                      : '—')
                 ),
                 h('td', { className: 'text-sm' }, e.clock_in_time ? (e.clock_in_time.includes('T') ? formatTime(e.clock_in_time) : e.clock_in_time) : '—'),
                 h('td', { className: 'text-sm' }, e.clock_out_time ? (e.clock_out_time.includes('T') ? formatTime(e.clock_out_time) : e.clock_out_time) : '—'),
