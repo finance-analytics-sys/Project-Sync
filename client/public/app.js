@@ -604,7 +604,9 @@
                   h('td', { style: 'font-size:0.8rem;' },
                     e.clock_in_address
                       ? h('div', null,
-                          h('div', { style: 'font-weight:500;' }, e.clock_in_address),
+                          (e.clock_in_lat != null && e.clock_in_lng != null)
+                            ? h('a', { href: `https://www.google.com/maps?q=${e.clock_in_lat},${e.clock_in_lng}`, target: '_blank', rel: 'noopener noreferrer', style: 'font-weight:500; color:var(--primary); text-decoration:underline; cursor:pointer;' }, e.clock_in_address)
+                            : h('div', { style: 'font-weight:500;' }, e.clock_in_address),
                           h('div', { style: 'font-size:0.75rem; color:var(--muted); margin-top:2px;' }, e.clock_in_location || '')
                         )
                       : (e.clock_in_location || '—')
@@ -1695,7 +1697,9 @@
                 h('td', { className: 'text-sm' },
                   e.clock_in_address
                     ? h('div', null,
-                        h('div', { style: 'font-weight:500;' }, e.clock_in_address),
+                        (e.clock_in_lat != null && e.clock_in_lng != null)
+                          ? h('a', { href: `https://www.google.com/maps?q=${e.clock_in_lat},${e.clock_in_lng}`, target: '_blank', rel: 'noopener noreferrer', style: 'font-weight:500; color:var(--primary); text-decoration:underline; cursor:pointer;' }, e.clock_in_address)
+                          : h('div', { style: 'font-weight:500;' }, e.clock_in_address),
                         h('div', { style: 'font-size:0.75rem; color:var(--muted); margin-top:2px;' }, e.clock_in_location || '')
                       )
                     : (e.clock_in_location || '—')
