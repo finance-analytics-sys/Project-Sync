@@ -50,7 +50,8 @@ const exemptEmployees = [
 
 // ── Level 3 — Office Employees ──
 const level3Employees = [
-  // JT (13)
+  // JT (14)
+  { first: 'John',      last: 'Doe',      office: 'JT', email: 'john.doe@visitingangels.com'          },
   { first: 'Finance',   last: 'Analytics', office: 'JT', email: 'finance-analytics@ycvliving.com'     },
   { first: 'Jessica A', last: 'Feldman',   office: 'JT', email: 'jessica.feldman@visitingangels.com'  },
   { first: 'Lori W',    last: 'Kennedy',   office: 'JT', email: 'lori.kennedy@visitingangels.com'     },
